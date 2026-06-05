@@ -25,10 +25,10 @@ export function Sidebar() {
   return (
     <aside className="w-60 min-h-screen bg-[#0a0e1a] border-r border-[#1e2a3a] flex flex-col">
       <div className="p-6 border-b border-[#1e2a3a]">
-        <div className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center font-bold text-sm">B</div>
           <span className="text-lg font-bold text-white">BotHub Pro</span>
-        </div>
+        </Link>
       </div>
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto scrollbar-thin">
         {navItems.map((item) => {

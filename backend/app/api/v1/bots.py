@@ -13,7 +13,13 @@ router = APIRouter()
 
 @router.get("/", response_model=List[BotResponse])
 async def list_bots(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
-    return db.query(Bot).filter(Bot.user_id == current_user.id).all()
+    from app.models.user import UserRole
+    if current_user.role == UserRole.admin:
+        # Admin sees all bots
+        return db.query(Bot).all()
+    else:
+        # Regular users see only active bots
+        return db.query(Bot).filter(Bot.status == BotStatus.active).all()
 
 
 @router.post("/", response_model=BotResponse, status_code=status.HTTP_201_CREATED)
