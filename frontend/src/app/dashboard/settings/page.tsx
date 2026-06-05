@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { userApi, authApi } from '@/lib/api'
+import { userApi, authApi, api } from '@/lib/api'
 import { toast } from 'sonner'
-import { User, Lock, Shield } from 'lucide-react'
+import { User, Lock, Shield, Plug } from 'lucide-react'
 
 export default function SettingsPage() {
   const [user, setUser] = useState<any>(null)
@@ -17,51 +17,48 @@ export default function SettingsPage() {
   const [newPw, setNewPw] = useState('')
   const [mfaSetup, setMfaSetup] = useState<any>(null)
   const [mfaCode, setMfaCode] = useState('')
+  const [ibkr, setIbkr] = useState({ host: '127.0.0.1', port: 7497, client_id: 1, account: '', paper_trading: true })
+  const [savingIbkr, setSavingIbkr] = useState(false)
 
   useEffect(() => {
-    userApi.getMe().then(r => {
-      setUser(r.data)
-      setFirstName(r.data.first_name)
-      setLastName(r.data.last_name)
-    }).catch(() => {})
+    userApi.getMe().then(r => { setUser(r.data); setFirstName(r.data.first_name); setLastName(r.data.last_name) }).catch(() => {})
+    api.get('/api/v1/broker/ibkr').then(r => { if (r.data) setIbkr(prev => ({ ...prev, ...r.data })) }).catch(() => {})
   }, [])
 
   const handleUpdateProfile = async () => {
-    try {
-      await userApi.updateMe({ first_name: firstName, last_name: lastName })
-      toast.success('Profile updated')
-    } catch { toast.error('Failed to update profile') }
+    try { await userApi.updateMe({ first_name: firstName, last_name: lastName }); toast.success('Profile updated') }
+    catch { toast.error('Failed to update profile') }
   }
 
   const handleChangePassword = async () => {
-    try {
-      await userApi.changePassword({ current_password: currentPw, new_password: newPw })
-      toast.success('Password changed')
-      setCurrentPw('')
-      setNewPw('')
-    } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed to change password') }
+    try { await userApi.changePassword({ current_password: currentPw, new_password: newPw }); toast.success('Password changed'); setCurrentPw(''); setNewPw('') }
+    catch (e: any) { toast.error(e.response?.data?.detail || 'Failed') }
   }
 
   const handleSetupMFA = async () => {
-    try {
-      const res = await authApi.setupMFA()
-      setMfaSetup(res.data)
-    } catch { toast.error('Failed to setup MFA') }
+    try { const res = await authApi.setupMFA(); setMfaSetup(res.data) }
+    catch { toast.error('Failed to setup MFA') }
   }
 
   const handleVerifyMFA = async () => {
+    try { await authApi.verifyMFA(mfaCode); toast.success('MFA enabled!'); setMfaSetup(null); setMfaCode('') }
+    catch { toast.error('Invalid MFA code') }
+  }
+
+  const handleSaveIBKR = async () => {
+    setSavingIbkr(true)
     try {
-      await authApi.verifyMFA(mfaCode)
-      toast.success('MFA enabled successfully!')
-      setMfaSetup(null)
-      setMfaCode('')
-    } catch { toast.error('Invalid MFA code') }
+      await api.post('/api/v1/broker/ibkr', ibkr)
+      toast.success('IBKR credentials saved securely')
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed to save') }
+    finally { setSavingIbkr(false) }
   }
 
   return (
     <div className="flex flex-col h-full">
       <Header title="Settings" />
       <div className="flex-1 p-6 space-y-6 max-w-2xl">
+
         <Card className="bg-[#0f1623] border-[#1e2a3a]">
           <CardHeader><CardTitle className="text-base text-white flex items-center gap-2"><User size={16} /> Profile</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -108,8 +105,8 @@ export default function SettingsPage() {
               </div>
             ) : mfaSetup ? (
               <div className="space-y-4">
-                <p className="text-gray-400 text-sm">Scan this QR code with Google Authenticator or Microsoft Authenticator:</p>
-                <img src={mfaSetup.qr_code_url} alt="MFA QR Code" className="w-48 h-48 bg-white p-2 rounded-lg" />
+                <p className="text-gray-400 text-sm">Scan with Google/Microsoft Authenticator:</p>
+                <img src={mfaSetup.qr_code_url} alt="MFA QR" className="w-48 h-48 bg-white p-2 rounded-lg" />
                 <div className="space-y-1">
                   <Label>Verification Code</Label>
                   <Input value={mfaCode} onChange={e => setMfaCode(e.target.value)} placeholder="000000" maxLength={6}
@@ -125,6 +122,59 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* IBKR Connection */}
+        <Card className="bg-[#0f1623] border-[#1e2a3a]">
+          <CardHeader>
+            <CardTitle className="text-base text-white flex items-center gap-2">
+              <Plug size={16} /> Interactive Brokers (IBKR) Connection
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300">
+              📋 Make sure TWS or IB Gateway is running and API connections are enabled. Your credentials are encrypted before storage and injected as environment variables when your bots execute.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>TWS Host</Label>
+                <Input value={ibkr.host} onChange={e => setIbkr({...ibkr, host: e.target.value})}
+                  placeholder="127.0.0.1" className="bg-[#0a0e1a] border-[#1e2a3a]" />
+              </div>
+              <div className="space-y-1">
+                <Label>Port</Label>
+                <Input type="number" value={ibkr.port} onChange={e => setIbkr({...ibkr, port: +e.target.value})}
+                  placeholder="7497" className="bg-[#0a0e1a] border-[#1e2a3a]" />
+                <p className="text-xs text-gray-500">Paper: 7497 · Live: 7496</p>
+              </div>
+              <div className="space-y-1">
+                <Label>Client ID</Label>
+                <Input type="number" value={ibkr.client_id} onChange={e => setIbkr({...ibkr, client_id: +e.target.value})}
+                  placeholder="1" className="bg-[#0a0e1a] border-[#1e2a3a]" />
+              </div>
+              <div className="space-y-1">
+                <Label>Account ID</Label>
+                <Input value={ibkr.account} onChange={e => setIbkr({...ibkr, account: e.target.value})}
+                  placeholder="DU1234567" className="bg-[#0a0e1a] border-[#1e2a3a]" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={ibkr.paper_trading}
+                  onChange={e => setIbkr({...ibkr, paper_trading: e.target.checked})}
+                  className="w-4 h-4 rounded" />
+                <span className="text-sm text-gray-300">Paper Trading Mode</span>
+              </label>
+              {ibkr.paper_trading
+                ? <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">Simulated</span>
+                : <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">⚠ Live Trading</span>
+              }
+            </div>
+            <Button onClick={handleSaveIBKR} disabled={savingIbkr}>
+              {savingIbkr ? 'Saving...' : 'Save IBKR Credentials'}
+            </Button>
+          </CardContent>
+        </Card>
+
       </div>
     </div>
   )
