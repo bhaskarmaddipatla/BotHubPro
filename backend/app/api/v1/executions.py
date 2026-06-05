@@ -40,10 +40,27 @@ async def create_execution(
         bot_id=exec_data.bot_id,
         trigger=exec_data.trigger,
         status=ExecutionStatus.pending,
-        started_at=datetime.utcnow()
     )
     db.add(execution)
     db.commit()
+    db.refresh(execution)
+
+    # Dispatch to Celery worker
+    try:
+        from app.workers.tasks import execute_bot_task
+        task = execute_bot_task.delay(
+            str(execution.id),
+            str(exec_data.bot_id),
+            str(current_user.id)
+        )
+        execution.celery_task_id = task.id
+        db.commit()
+    except Exception as e:
+        # If Celery not available, mark as failed
+        execution.status = ExecutionStatus.failed
+        execution.error_message = f"Worker unavailable: {str(e)}"
+        db.commit()
+
     db.refresh(execution)
     return execution
 
@@ -73,4 +90,6 @@ async def get_execution_logs(
     ).first()
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
-    return db.query(ExecutionLog).filter(ExecutionLog.execution_id == execution_id).all()
+    return db.query(ExecutionLog).filter(
+        ExecutionLog.execution_id == execution_id
+    ).order_by(ExecutionLog.timestamp).all()

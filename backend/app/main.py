@@ -1,12 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 import logging
 
 from app.core.config import settings
-from app.core.database import engine, Base
 from app.api.v1 import auth, users, bots, executions, subscriptions, analytics, admin, notifications, marketplace, backtests
+from app.api.v1 import broker_credentials
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,6 +43,7 @@ app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"])
 app.include_router(backtests.router, prefix="/api/v1/backtests", tags=["Backtests"])
+app.include_router(broker_credentials.router, prefix="/api/v1/broker", tags=["Broker"])
 
 
 @app.get("/health")
