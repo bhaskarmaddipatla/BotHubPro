@@ -9,6 +9,8 @@ Default credentials:
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Import ALL models so SQLAlchemy can resolve relationships
+from app.models import user, subscription, bot, execution, notification, api_key, audit_log, billing
 from app.core.database import SessionLocal, engine, Base
 from app.models.user import User, UserRole, UserStatus
 from app.core.security import get_password_hash
