@@ -3,13 +3,29 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from uuid import UUID
+import uuid
+from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models.user import User, UserStatus
 from app.models.bot import Bot, BotStatus
 from app.models.execution import Execution
-from app.models.subscription import Subscription, SubscriptionStatus
+from app.models.subscription import Subscription, SubscriptionStatus, Plan
 from app.schemas.user import UserResponse
 from app.api.deps import require_admin
+from pydantic import BaseModel
+
+
+class SubscriptionApprovalResponse(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    user_email: str
+    user_name: str
+    plan_name: str
+    status: SubscriptionStatus
+    created_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
 
 router = APIRouter()
 
@@ -70,3 +86,44 @@ async def approve_bot(bot_id: UUID, admin: User = Depends(require_admin), db: Se
     bot.is_approved = True
     db.commit()
     return {"message": "Bot approved"}
+
+
+@router.get("/subscriptions/pending")
+async def list_pending_subscriptions(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    subs = db.query(Subscription).filter(
+        Subscription.status == SubscriptionStatus.pending_approval
+    ).all()
+    result = []
+    for sub in subs:
+        user = db.query(User).filter(User.id == sub.user_id).first()
+        plan = db.query(Plan).filter(Plan.id == sub.plan_id).first()
+        result.append({
+            "id": str(sub.id),
+            "user_id": str(sub.user_id),
+            "user_email": user.email if user else "",
+            "user_name": f"{user.first_name} {user.last_name}" if user else "",
+            "plan_name": plan.name if plan else "",
+            "status": sub.status,
+            "created_at": sub.created_at,
+        })
+    return result
+
+
+@router.post("/subscriptions/{sub_id}/approve")
+async def approve_subscription(sub_id: UUID, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    sub = db.query(Subscription).filter(Subscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    sub.status = SubscriptionStatus.trialing
+    db.commit()
+    return {"message": "Subscription approved"}
+
+
+@router.post("/subscriptions/{sub_id}/reject")
+async def reject_subscription(sub_id: UUID, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    sub = db.query(Subscription).filter(Subscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    sub.status = SubscriptionStatus.canceled
+    db.commit()
+    return {"message": "Subscription rejected"}

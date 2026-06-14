@@ -20,6 +20,7 @@ class SubscriptionStatus(str, enum.Enum):
     past_due = "past_due"
     trialing = "trialing"
     paused = "paused"
+    pending_approval = "pending_approval"
 
 
 class Plan(Base):

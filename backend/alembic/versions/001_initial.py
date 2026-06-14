@@ -59,7 +59,7 @@ def upgrade():
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('plan_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('status', sa.Enum('active', 'canceled', 'past_due', 'trialing', 'paused', name='subscriptionstatus'), server_default='trialing'),
+        sa.Column('status', sa.Enum('active', 'canceled', 'past_due', 'trialing', 'paused', 'pending_approval', name='subscriptionstatus'), server_default='trialing'),
         sa.Column('stripe_subscription_id', sa.String(255), nullable=True),
         sa.Column('stripe_customer_id', sa.String(255), nullable=True),
         sa.Column('current_period_start', sa.DateTime(timezone=True), nullable=True),

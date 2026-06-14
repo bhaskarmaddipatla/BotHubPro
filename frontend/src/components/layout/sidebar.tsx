@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Bot, Activity, BarChart3, FlaskConical,
-  LineChart, CreditCard, Settings, ShieldCheck, Bell, Store
+  LineChart, CreditCard, Settings, ShieldCheck, Store
 } from 'lucide-react'
 import { userApi } from '@/lib/api'
 
@@ -19,7 +19,6 @@ const navItems = [
   { href: '/marketplace', label: 'Marketplace', icon: Store },
   { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
-  { href: '/dashboard/admin', label: 'Admin', icon: ShieldCheck },
 ]
 
 export function Sidebar() {
@@ -30,9 +29,14 @@ export function Sidebar() {
     userApi.getMe().then(r => setUser(r.data)).catch(() => {})
   }, [])
 
-  const displayName = user ? `${user.first_name} ${user.last_name}` : '...'
+  const displayName = user ? `${user.first_name} ${user.last_name}` : 'Loading...'
   const initials = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : '?'
   const role = user?.role ?? ''
+  const isAdmin = role === 'admin'
+
+  const visibleNav = isAdmin
+    ? [...navItems, { href: '/dashboard/admin', label: 'Admin', icon: ShieldCheck }]
+    : navItems
 
   return (
     <aside className="w-60 min-h-screen bg-[#0a0e1a] border-r border-[#1e2a3a] flex flex-col">
@@ -43,7 +47,7 @@ export function Sidebar() {
         </Link>
       </div>
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto scrollbar-thin">
-        {navItems.map((item) => {
+        {visibleNav.map((item) => {
           const Icon = item.icon
           const active = pathname === item.href || pathname.startsWith(item.href + '/')
           return (

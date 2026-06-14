@@ -90,11 +90,11 @@ async def start_trial(
     sub = Subscription(
         user_id=current_user.id,
         plan_id=trial_plan.id,
-        status=SubscriptionStatus.trialing,
+        status=SubscriptionStatus.pending_approval,
         trial_end=datetime.utcnow() + timedelta(days=7),
         current_period_start=datetime.utcnow(),
         current_period_end=datetime.utcnow() + timedelta(days=7)
     )
     db.add(sub)
     db.commit()
-    return {"message": "Trial started", "trial_end": sub.trial_end}
+    return {"message": "Subscription requested. Awaiting admin approval.", "status": "pending_approval"}

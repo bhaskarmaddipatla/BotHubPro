@@ -4,13 +4,13 @@ from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash
 from app.models.user import User
 from app.schemas.user import UserResponse, UserUpdate, ChangePasswordRequest
-from app.api.deps import get_current_active_user
+from app.api.deps import get_current_active_user, get_current_user
 
 router = APIRouter()
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_active_user)):
+async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
