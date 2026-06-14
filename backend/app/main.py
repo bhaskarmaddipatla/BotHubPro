@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.core.config import settings
+from app.models import user, subscription, bot, execution, notification, api_key, audit_log, billing  # noqa: F401
 from app.api.v1 import auth, users, bots, executions, subscriptions, analytics, admin, notifications, marketplace, backtests
 from app.api.v1 import broker_credentials
 
