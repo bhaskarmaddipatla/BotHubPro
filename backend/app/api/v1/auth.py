@@ -1,4 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
+import logging
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import pyotp
@@ -34,8 +37,36 @@ def create_audit_log(db: Session, user_id, action: str, request: Request = None,
     db.commit()
 
 
+def send_verification_email(email: str, first_name: str, token: str):
+    if not settings.SENDGRID_API_KEY:
+        verify_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
+        logger.info(f"[EMAIL SKIPPED] Verification link for {email}: {verify_url}")
+        return
+    try:
+        import sendgrid
+        from sendgrid.helpers.mail import Mail
+        verify_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
+        message = Mail(
+            from_email=settings.FROM_EMAIL,
+            to_emails=email,
+            subject="Verify your BotHub Pro account",
+            html_content=f"""
+            <div style="font-family:sans-serif;max-width:480px;margin:auto">
+              <h2>Welcome to BotHub Pro, {first_name}!</h2>
+              <p>Click the button below to verify your email address and activate your account.</p>
+              <a href="{verify_url}" style="display:inline-block;padding:12px 24px;background:#3b82f6;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a>
+              <p style="margin-top:16px;color:#6b7280;font-size:13px">Or copy this link: {verify_url}</p>
+              <p style="color:#6b7280;font-size:12px">This link expires in 24 hours. If you didn't create an account, ignore this email.</p>
+            </div>"""
+        )
+        sg = sendgrid.SendGridAPIClient(api_key=settings.SENDGRID_API_KEY)
+        sg.send(message)
+    except Exception as e:
+        logger.error(f"Failed to send verification email to {email}: {e}")
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(request_data: RegisterRequest, db: Session = Depends(get_db)):
+async def register(request_data: RegisterRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == request_data.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -52,7 +83,8 @@ async def register(request_data: RegisterRequest, db: Session = Depends(get_db))
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"message": "Registration successful. Please verify your email.", "user_id": str(user.id)}
+    background_tasks.add_task(send_verification_email, user.email, user.first_name, verification_token)
+    return {"message": "Registration successful. Please check your email to verify your account.", "user_id": str(user.id)}
 
 
 @router.get("/verify-email/{token}")

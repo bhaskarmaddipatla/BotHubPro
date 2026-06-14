@@ -1,11 +1,13 @@
 "use client"
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Bot, Activity, BarChart3, FlaskConical,
   LineChart, CreditCard, Settings, ShieldCheck, Bell, Store
 } from 'lucide-react'
+import { userApi } from '@/lib/api'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -22,6 +24,16 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const [user, setUser] = useState<{ first_name: string; last_name: string; role: string } | null>(null)
+
+  useEffect(() => {
+    userApi.getMe().then(r => setUser(r.data)).catch(() => {})
+  }, [])
+
+  const displayName = user ? `${user.first_name} ${user.last_name}` : '...'
+  const initials = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : '?'
+  const role = user?.role ?? ''
+
   return (
     <aside className="w-60 min-h-screen bg-[#0a0e1a] border-r border-[#1e2a3a] flex flex-col">
       <div className="p-6 border-b border-[#1e2a3a]">
@@ -53,10 +65,10 @@ export function Sidebar() {
       </nav>
       <div className="p-4 border-t border-[#1e2a3a]">
         <div className="flex items-center gap-3 px-3 py-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center text-xs font-bold">U</div>
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center text-xs font-bold">{initials}</div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-white truncate">User</div>
-            <div className="text-xs text-gray-400 truncate">subscriber</div>
+            <div className="text-sm font-medium text-white truncate">{displayName}</div>
+            <div className="text-xs text-gray-400 truncate capitalize">{role}</div>
           </div>
         </div>
       </div>
