@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/header'
 import { Card, CardContent } from '@/components/ui/card'
 import { executionsApi, api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
+import { Fragment } from 'react'
 import { AlertTriangle, Info, ChevronDown, ChevronRight, RefreshCw, Loader2 } from 'lucide-react'
 
 const statusColors: Record<string, string> = {
@@ -280,7 +281,7 @@ export default function ExecutionsPage() {
                     const duration = ex.completed_at && ex.started_at
                       ? Math.round((new Date(ex.completed_at).getTime() - new Date(ex.started_at).getTime()) / 1000) + 's'
                       : '—'
-                    return [
+                    return <Fragment key={ex.id}>{[
                       <tr
                         key={ex.id}
                         onClick={() => toggle(ex.id)}
@@ -317,7 +318,7 @@ export default function ExecutionsPage() {
                           </td>
                         </tr>
                       )
-                    ]
+                    ]}</Fragment>
                   })}
                 </tbody>
               </table>
