@@ -70,10 +70,13 @@ export default function BotsPage() {
     }
     setRunningBots(prev => new Set([...prev, botId]))
     try {
-      await executionsApi.create({ bot_id: botId, trigger: 'manual' })
-      toast.success('Bot execution started — check Executions tab for live logs')
+      // Use bot-runner directly — starts subprocess immediately and marks running
+      await api.post(`/api/v1/bot-runner/${botId}/start`)
+      toast.success('Bot started — opening Live Monitor')
+      router.push(`/dashboard/bots/${botId}/live`)
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || 'Failed to run bot')
+      const msg = e.response?.data?.detail || 'Failed to start bot'
+      toast.error(msg)
     } finally {
       setRunningBots(prev => { const s = new Set(prev); s.delete(botId); return s })
     }

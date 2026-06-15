@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { executionsApi, api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import { Fragment } from 'react'
-import { AlertTriangle, Info, ChevronDown, ChevronRight, RefreshCw, Loader2 } from 'lucide-react'
+import { AlertTriangle, Info, ChevronDown, ChevronRight, RefreshCw, Loader2, XCircle } from 'lucide-react'
 
 const statusColors: Record<string, string> = {
   pending:   'text-yellow-400 bg-yellow-500/10',
@@ -34,11 +34,20 @@ function stepIndexForStatus(status: string) {
 
 interface LogLine { id: string; level: string; message: string; timestamp: string; data?: any }
 
-function ExecutionDetail({ ex, botNames }: { ex: any; botNames: Record<string, string> }) {
+function ExecutionDetail({ ex, botNames, onCanceled }: { ex: any; botNames: Record<string, string>; onCanceled: () => void }) {
   const [logs, setLogs] = useState<LogLine[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
+  const [canceling, setCanceling] = useState(false)
   const [tradeLog, setTradeLog] = useState<any[]>([])
   const router = useRouter()
+
+  const handleCancel = async () => {
+    setCanceling(true)
+    try {
+      await api.post(`/api/v1/executions/${ex.id}/cancel`)
+      onCanceled()
+    } catch { setCanceling(false) }
+  }
 
   const fetchLogs = useCallback(async () => {
     setLoadingLogs(true)
@@ -100,10 +109,20 @@ function ExecutionDetail({ ex, botNames }: { ex: any; botNames: Record<string, s
           </ol>
 
           {ex.status === 'pending' && (
-            <div className="mt-2 bg-yellow-500/10 border border-yellow-500/20 rounded p-2 text-xs text-yellow-300">
-              If this stays pending for more than 60 seconds, check that your IBKR credentials are saved in{' '}
-              <button onClick={() => router.push('/dashboard/settings')} className="underline hover:text-yellow-100">Settings</button>{' '}
-              and that TWS / IB Gateway is reachable.
+            <div className="mt-2 space-y-2">
+              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded p-2 text-xs text-yellow-300">
+                If this stays pending, the Celery worker may not be running. Use the <strong>Run Now</strong> button on the Bots page instead — it starts the bot directly without Celery. Or{' '}
+                <button onClick={() => router.push('/dashboard/settings')} className="underline hover:text-yellow-100">check Settings</button>{' '}
+                to verify your broker credentials.
+              </div>
+              <button
+                onClick={handleCancel}
+                disabled={canceling}
+                className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              >
+                {canceling ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
+                Cancel this execution
+              </button>
             </div>
           )}
         </div>
@@ -314,7 +333,9 @@ export default function ExecutionsPage() {
                       isOpen && (
                         <tr key={ex.id + '-detail'} className="border-b border-[#1e2a3a]/50 bg-[#0a0e1a]/60">
                           <td colSpan={8} className="pt-3">
-                            <ExecutionDetail ex={ex} botNames={botNames} />
+                            <ExecutionDetail ex={ex} botNames={botNames} onCanceled={() => {
+                              executionsApi.list().then(r => setExecutions(r.data)).catch(() => {})
+                            }} />
                           </td>
                         </tr>
                       )

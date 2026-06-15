@@ -79,6 +79,25 @@ async def get_execution(
     return execution
 
 
+@router.post("/{execution_id}/cancel")
+async def cancel_execution(
+    execution_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    execution = db.query(Execution).filter(
+        Execution.id == execution_id, Execution.user_id == current_user.id
+    ).first()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if execution.status not in (ExecutionStatus.pending, ExecutionStatus.running):
+        raise HTTPException(status_code=400, detail="Execution is not active")
+    execution.status = ExecutionStatus.canceled
+    execution.completed_at = datetime.utcnow()
+    db.commit()
+    return {"message": "Execution canceled"}
+
+
 @router.get("/{execution_id}/logs", response_model=List[ExecutionLogResponse])
 async def get_execution_logs(
     execution_id: UUID,
