@@ -72,10 +72,13 @@ export default function SettingsPage() {
     setTestingConn(true)
     setConnResult(null)
     try {
-      const res = await api.post('/api/v1/broker/test-connection')
+      const res = await api.post('/api/v1/broker/test-connection', {}, { timeout: 10000 })
       setConnResult(res.data)
     } catch (e: any) {
-      setConnResult({ reachable: false, latency_ms: null, message: e.response?.data?.detail || 'Connection test failed' })
+      const msg = e.code === 'ECONNABORTED'
+        ? 'Request timed out — backend did not respond in 10s'
+        : e.response?.data?.detail || 'Connection test failed'
+      setConnResult({ reachable: false, latency_ms: null, message: msg })
     } finally { setTestingConn(false) }
   }
 
@@ -184,8 +187,9 @@ export default function SettingsPage() {
 
             {brokerTab === 'ibkr' && (
               <div className="space-y-4">
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300">
-                  📋 Make sure TWS or IB Gateway is running and API connections are enabled. Your credentials are encrypted before storage and injected as environment variables when your bots execute.
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300 space-y-1">
+                  <p>📋 TWS / IB Gateway must be running on your local machine with <strong>API connections enabled</strong> (File → Global Configuration → API → Settings → Enable ActiveX and Socket Clients).</p>
+                  <p>⚠️ <strong>Docker users:</strong> the backend runs inside a container, so <code className="bg-black/30 px-1 rounded">127.0.0.1</code> refers to the container, not your PC. Use <code className="bg-black/30 px-1 rounded">host.docker.internal</code> (Windows/Mac) or your machine's LAN IP (e.g. <code className="bg-black/30 px-1 rounded">192.168.x.x</code>) as the TWS Host instead.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">

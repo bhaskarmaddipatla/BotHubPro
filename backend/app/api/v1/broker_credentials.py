@@ -113,10 +113,15 @@ async def test_ibkr_connection(current_user: User = Depends(get_current_active_u
     port = int(creds.get("port", 7497))
     try:
         start = time.monotonic()
-        sock = socket.create_connection((host, port), timeout=5)
+        sock = socket.create_connection((host, port), timeout=7)
         latency_ms = (time.monotonic() - start) * 1000
         sock.close()
         return {"reachable": True, "host": host, "port": port, "latency_ms": round(latency_ms, 2), "message": f"Successfully connected to {host}:{port}"}
+    except socket.timeout:
+        hint = " — if TWS is on your local PC, use host.docker.internal or your LAN IP instead of 127.0.0.1" if host == "127.0.0.1" else ""
+        return {"reachable": False, "host": host, "port": port, "latency_ms": None, "message": f"Timed out connecting to {host}:{port}{hint}"}
+    except ConnectionRefusedError:
+        return {"reachable": False, "host": host, "port": port, "latency_ms": None, "message": f"Connection refused at {host}:{port} — is TWS/IB Gateway running with API enabled?"}
     except Exception as e:
         return {"reachable": False, "host": host, "port": port, "latency_ms": None, "message": str(e)}
 
