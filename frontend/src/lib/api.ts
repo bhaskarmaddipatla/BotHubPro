@@ -16,23 +16,42 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Shared refresh lock — prevents multiple concurrent 401s each firing their own refresh
+let refreshPromise: Promise<string> | null = null
+
+function doRefresh(): Promise<string> {
+  if (refreshPromise) return refreshPromise
+  refreshPromise = axios
+    .post(`${API_URL}/api/v1/auth/refresh`, { refresh_token: Cookies.get('refresh_token') })
+    .then(res => {
+      Cookies.set('access_token', res.data.access_token, { expires: 1 })
+      return res.data.access_token as string
+    })
+    .catch(err => {
+      Cookies.remove('access_token')
+      Cookies.remove('refresh_token')
+      window.location.href = '/auth/login'
+      throw err
+    })
+    .finally(() => { refreshPromise = null })
+  return refreshPromise
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const url: string = error.config?.url ?? ''
     const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
-    if (error.response?.status === 401 && !isAuthEndpoint) {
+    if (error.response?.status === 401 && !isAuthEndpoint && !error.config._retried) {
       const refreshToken = Cookies.get('refresh_token')
       if (refreshToken) {
         try {
-          const res = await axios.post(`${API_URL}/api/v1/auth/refresh`, { refresh_token: refreshToken })
-          Cookies.set('access_token', res.data.access_token, { expires: 1 })
-          error.config.headers.Authorization = `Bearer ${res.data.access_token}`
+          const newToken = await doRefresh()
+          error.config._retried = true
+          error.config.headers.Authorization = `Bearer ${newToken}`
           return api.request(error.config)
         } catch {
-          Cookies.remove('access_token')
-          Cookies.remove('refresh_token')
-          window.location.href = '/auth/login'
+          return Promise.reject(error)
         }
       }
     }
