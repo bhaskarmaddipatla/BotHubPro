@@ -129,3 +129,70 @@ async def delete_broker_key(key_id: UUID, current_user: User = Depends(get_curre
     key.is_active = False
     db.commit()
     return {"message": "Deleted"}
+
+
+# ── Moomoo ────────────────────────────────────────────────────────────────────
+
+class MoomooCredentials(BaseModel):
+    api_key: str
+    api_secret: str
+    account_id: str = ""
+    paper_trading: bool = True
+
+
+@router.post("/moomoo")
+async def save_moomoo_credentials(
+    creds: MoomooCredentials,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    import json
+    existing = db.query(APIKey).filter(
+        APIKey.user_id == current_user.id,
+        APIKey.provider == "moomoo",
+    ).first()
+    encrypted = simple_encrypt(json.dumps(creds.model_dump()))
+    if existing:
+        existing.encrypted_key = encrypted
+        existing.name = f"Moomoo {'Paper' if creds.paper_trading else 'Live'} - {creds.account_id or 'default'}"
+        db.commit()
+        return {"message": "Moomoo credentials updated"}
+    db.add(APIKey(
+        user_id=current_user.id,
+        name=f"Moomoo {'Paper' if creds.paper_trading else 'Live'} - {creds.account_id or 'default'}",
+        provider="moomoo",
+        encrypted_key=encrypted,
+    ))
+    db.commit()
+    return {"message": "Moomoo credentials saved"}
+
+
+@router.get("/moomoo")
+async def get_moomoo_credentials(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    import json
+    key = db.query(APIKey).filter(
+        APIKey.user_id == current_user.id,
+        APIKey.provider == "moomoo",
+        APIKey.is_active == True,
+    ).first()
+    if not key:
+        return None
+    creds = json.loads(simple_decrypt(key.encrypted_key))
+    creds["api_secret"] = "••••••••"  # mask secret
+    return creds
+
+
+@router.get("/status")
+async def broker_setup_status(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """Returns which brokers are configured and whether they appear complete."""
+    ibkr = db.query(APIKey).filter(APIKey.user_id == current_user.id, APIKey.provider == "ibkr", APIKey.is_active == True).first()
+    moomoo = db.query(APIKey).filter(APIKey.user_id == current_user.id, APIKey.provider == "moomoo", APIKey.is_active == True).first()
+    import json
+    result = {"ibkr": None, "moomoo": None}
+    if ibkr:
+        c = json.loads(simple_decrypt(ibkr.encrypted_key))
+        result["ibkr"] = {"configured": True, "host": c.get("host"), "port": c.get("port"), "account": c.get("account", ""), "paper_trading": c.get("paper_trading", True)}
+    if moomoo:
+        c = json.loads(simple_decrypt(moomoo.encrypted_key))
+        result["moomoo"] = {"configured": True, "account_id": c.get("account_id", ""), "paper_trading": c.get("paper_trading", True)}
+    return result
