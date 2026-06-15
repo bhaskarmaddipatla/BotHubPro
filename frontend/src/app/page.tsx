@@ -184,16 +184,24 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-[#1e2a3a] py-12">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-500 rounded flex items-center justify-center font-bold text-xs">B</div>
-            <span className="font-semibold">BotHub Pro</span>
+        <div className="max-w-7xl mx-auto px-6 space-y-6">
+          {/* Risk disclaimer */}
+          <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-4 text-xs text-yellow-400/70 text-center">
+            <strong>Risk Disclosure:</strong> Options trading involves substantial risk of loss and is not suitable for all investors. BotHub Pro is a software platform and does not provide investment advice. Past performance is not indicative of future results. Never trade with capital you cannot afford to lose.{' '}
+            <Link href="/legal/risk-disclosure" className="underline hover:text-yellow-300">Full Risk Disclosure</Link>
           </div>
-          <div className="text-gray-400 text-sm">© 2024 BotHub Pro. All rights reserved.</div>
-          <div className="flex gap-6 text-sm text-gray-400">
-            <a href="#" className="hover:text-white">Privacy</a>
-            <a href="#" className="hover:text-white">Terms</a>
-            <a href="#" className="hover:text-white">Contact</a>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-blue-500 rounded flex items-center justify-center font-bold text-xs">B</div>
+              <span className="font-semibold">BotHub Pro</span>
+            </div>
+            <div className="text-gray-400 text-sm">© 2025 BotHub Pro. All rights reserved.</div>
+            <div className="flex gap-6 text-sm text-gray-400">
+              <Link href="/legal/privacy" className="hover:text-white">Privacy Policy</Link>
+              <Link href="/legal/terms" className="hover:text-white">Terms of Service</Link>
+              <Link href="/legal/risk-disclosure" className="hover:text-white">Risk Disclosure</Link>
+              <a href="mailto:legal@bothubpro.com" className="hover:text-white">Contact</a>
+            </div>
           </div>
         </div>
       </footer>

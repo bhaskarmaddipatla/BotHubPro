@@ -20,6 +20,9 @@ const registerSchema = z.object({
     .regex(/[A-Z]/, 'Must contain uppercase letter')
     .regex(/[a-z]/, 'Must contain lowercase letter')
     .regex(/\d/, 'Must contain number'),
+  acceptTerms: z.boolean().refine(v => v === true, 'You must accept the Terms of Service'),
+  acceptRisk: z.boolean().refine(v => v === true, 'You must acknowledge the Risk Disclosure'),
+  acceptSuitability: z.boolean().refine(v => v === true, 'You must confirm suitability'),
 })
 
 type RegisterForm = z.infer<typeof registerSchema>
@@ -29,13 +32,19 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
 
   const { register, handleSubmit, formState: { errors } } = useForm<RegisterForm>({
-    resolver: zodResolver(registerSchema)
+    resolver: zodResolver(registerSchema),
+    defaultValues: { acceptTerms: false, acceptRisk: false, acceptSuitability: false },
   })
 
   const onSubmit = async (data: RegisterForm) => {
     setLoading(true)
     try {
-      await authApi.register(data)
+      await authApi.register({
+        first_name: data.first_name,
+        last_name: data.last_name,
+        email: data.email,
+        password: data.password,
+      })
       toast.success('Account created! Please check your email to verify.')
       router.push('/auth/login')
     } catch (error: any) {
@@ -47,7 +56,6 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center p-4">
-      {/* Back to home */}
       <Link href="/" className="absolute top-6 left-6 flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         Back to Home
@@ -61,6 +69,11 @@ export default function RegisterPage() {
           </Link>
           <h1 className="text-2xl font-bold text-white mb-2">Create your account</h1>
           <p className="text-gray-400 text-sm">Start your 7-day free trial today</p>
+        </div>
+
+        {/* Risk banner */}
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 mb-4 text-xs text-yellow-300">
+          ⚠️ <strong>Options trading involves substantial risk of loss.</strong> BotHub Pro is a software tool, not financial advice. Only trade with capital you can afford to lose.
         </div>
 
         <div className="bg-[#0f1623] border border-[#1e2a3a] rounded-xl p-6">
@@ -90,6 +103,40 @@ export default function RegisterPage() {
               {errors.password && <p className="text-red-400 text-xs">{errors.password.message}</p>}
             </div>
 
+            {/* Compliance checkboxes */}
+            <div className="space-y-3 pt-2 border-t border-[#1e2a3a]">
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Required Acknowledgements</p>
+
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input type="checkbox" {...register('acceptTerms')} className="mt-0.5 w-4 h-4 rounded shrink-0" />
+                <span className="text-xs text-gray-400 group-hover:text-gray-300">
+                  I have read and agree to the{' '}
+                  <Link href="/legal/terms" target="_blank" className="text-blue-400 hover:text-blue-300 underline">Terms of Service</Link>
+                  {' '}and{' '}
+                  <Link href="/legal/privacy" target="_blank" className="text-blue-400 hover:text-blue-300 underline">Privacy Policy</Link>
+                </span>
+              </label>
+              {errors.acceptTerms && <p className="text-red-400 text-xs ml-7">{errors.acceptTerms.message}</p>}
+
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input type="checkbox" {...register('acceptRisk')} className="mt-0.5 w-4 h-4 rounded shrink-0" />
+                <span className="text-xs text-gray-400 group-hover:text-gray-300">
+                  I have read and understood the{' '}
+                  <Link href="/legal/risk-disclosure" target="_blank" className="text-blue-400 hover:text-blue-300 underline">Risk Disclosure Statement</Link>
+                  {' '}and acknowledge that options trading involves substantial risk of loss, including loss of all capital
+                </span>
+              </label>
+              {errors.acceptRisk && <p className="text-red-400 text-xs ml-7">{errors.acceptRisk.message}</p>}
+
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input type="checkbox" {...register('acceptSuitability')} className="mt-0.5 w-4 h-4 rounded shrink-0" />
+                <span className="text-xs text-gray-400 group-hover:text-gray-300">
+                  I confirm that I am 18 or older, have been approved by my broker for options trading, understand the strategies I am deploying, and am not relying on this software as my primary source of income. I understand BotHub Pro does not provide financial advice.
+                </span>
+              </label>
+              {errors.acceptSuitability && <p className="text-red-400 text-xs ml-7">{errors.acceptSuitability.message}</p>}
+            </div>
+
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Creating account...' : 'Create Account'}
             </Button>
@@ -100,10 +147,6 @@ export default function RegisterPage() {
             <Link href="/auth/login" className="text-blue-400 hover:text-blue-300">Sign in</Link>
           </div>
         </div>
-
-        <p className="text-xs text-center text-gray-500 mt-4">
-          By creating an account you agree to our Terms of Service and Privacy Policy
-        </p>
       </div>
     </div>
   )
