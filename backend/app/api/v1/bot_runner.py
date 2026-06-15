@@ -51,37 +51,40 @@ def _read_pid(user_id, bot_id) -> int | None:
 
 def _sync_bot_from_git(bot_files_dir: Path, git_repo: str, git_branch: str, git_path: str) -> tuple[bool, str]:
     """Clone or pull the bot code from GitHub. Returns (success, message)."""
-    token = os.environ.get("GITHUB_TOKEN", "")
-    if token:
-        # Inject token into HTTPS URL
-        repo_url = git_repo.replace("https://", f"https://{token}@")
-    else:
-        repo_url = git_repo
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        return False, "GITHUB_TOKEN is not set. Add it to your .env file and rebuild."
 
+    # Use token as credential via git config — works for private repos
+    # Format: https://x-access-token:<token>@github.com/...
+    repo_url = git_repo.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
+
+    git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     clone_dir = Path(f"/tmp/git_bots/{git_repo.rstrip('/').split('/')[-1].replace('.git', '')}")
     try:
         if clone_dir.exists():
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "fetch", "--depth=1", "origin", git_branch],
-                cwd=str(clone_dir), capture_output=True, text=True, timeout=30
+                cwd=str(clone_dir), capture_output=True, text=True, timeout=30, env=git_env
             )
             subprocess.run(
                 ["git", "reset", "--hard", f"origin/{git_branch}"],
-                cwd=str(clone_dir), capture_output=True, text=True, timeout=15
+                cwd=str(clone_dir), capture_output=True, text=True, timeout=15, env=git_env
             )
         else:
             clone_dir.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "clone", "--depth=1", "--branch", git_branch, repo_url, str(clone_dir)],
-                capture_output=True, text=True, timeout=60, check=True
+                capture_output=True, text=True, timeout=60, env=git_env
             )
+            if result.returncode != 0:
+                return False, f"Git clone failed: {result.stderr[:400]}"
 
         src = clone_dir / git_path
         if not src.exists():
             return False, f"Path '{git_path}' not found in repo after clone"
 
         bot_files_dir.mkdir(parents=True, exist_ok=True)
-        # Copy all files from git_path into bot_files_dir
         for item in src.iterdir():
             dest = bot_files_dir / item.name
             if item.is_dir():
@@ -92,8 +95,6 @@ def _sync_bot_from_git(bot_files_dir: Path, git_repo: str, git_branch: str, git_
                 shutil.copy2(item, dest)
 
         return True, f"Synced from {git_repo} branch={git_branch} path={git_path}"
-    except subprocess.CalledProcessError as e:
-        return False, f"Git error: {e.stderr[:300] if e.stderr else str(e)}"
     except Exception as e:
         return False, f"Sync error: {e}"
 
