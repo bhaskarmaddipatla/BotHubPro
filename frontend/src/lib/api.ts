@@ -98,3 +98,12 @@ export const marketplaceApi = {
 export const backtestsApi = {
   run: (data: object) => api.post('/api/v1/backtests/run', data),
 }
+
+export const botRunnerApi = {
+  start: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/start`),
+  stop: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/stop`),
+  status: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/status`),
+  positions: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/positions`),
+  tradeLog: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/trade-log`),
+  testConnection: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/test-connection`),
+}

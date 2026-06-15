@@ -97,6 +97,30 @@ async def get_ibkr_credentials(current_user: User = Depends(get_current_active_u
     return creds
 
 
+@router.post("/test-connection")
+async def test_ibkr_connection(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    import json
+    import socket
+    import time
+    key = db.query(APIKey).filter(
+        APIKey.user_id == current_user.id,
+        APIKey.provider == "ibkr"
+    ).first()
+    if not key:
+        raise HTTPException(status_code=404, detail="No IBKR credentials found. Save them in Settings first.")
+    creds = json.loads(simple_decrypt(key.encrypted_key))
+    host = creds.get("host", "127.0.0.1")
+    port = int(creds.get("port", 7497))
+    try:
+        start = time.monotonic()
+        sock = socket.create_connection((host, port), timeout=5)
+        latency_ms = (time.monotonic() - start) * 1000
+        sock.close()
+        return {"reachable": True, "host": host, "port": port, "latency_ms": round(latency_ms, 2), "message": f"Successfully connected to {host}:{port}"}
+    except Exception as e:
+        return {"reachable": False, "host": host, "port": port, "latency_ms": None, "message": str(e)}
+
+
 @router.delete("/{key_id}")
 async def delete_broker_key(key_id: UUID, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     key = db.query(APIKey).filter(APIKey.id == key_id, APIKey.user_id == current_user.id).first()

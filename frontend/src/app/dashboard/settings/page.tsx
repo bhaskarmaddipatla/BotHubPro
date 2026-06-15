@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { userApi, authApi, api } from '@/lib/api'
 import { toast } from 'sonner'
-import { User, Lock, Shield, Plug } from 'lucide-react'
+import { User, Lock, Shield, Plug, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 export default function SettingsPage() {
   const [user, setUser] = useState<any>(null)
@@ -19,6 +19,8 @@ export default function SettingsPage() {
   const [mfaCode, setMfaCode] = useState('')
   const [ibkr, setIbkr] = useState({ host: '127.0.0.1', port: 7497, client_id: 1, account: '', paper_trading: true })
   const [savingIbkr, setSavingIbkr] = useState(false)
+  const [testingConn, setTestingConn] = useState(false)
+  const [connResult, setConnResult] = useState<{ reachable: boolean; latency_ms: number | null; message: string } | null>(null)
 
   useEffect(() => {
     userApi.getMe().then(r => { setUser(r.data); setFirstName(r.data.first_name); setLastName(r.data.last_name) }).catch(() => {})
@@ -52,6 +54,17 @@ export default function SettingsPage() {
       toast.success('IBKR credentials saved securely')
     } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed to save') }
     finally { setSavingIbkr(false) }
+  }
+
+  const handleTestConnection = async () => {
+    setTestingConn(true)
+    setConnResult(null)
+    try {
+      const res = await api.post('/api/v1/broker/test-connection')
+      setConnResult(res.data)
+    } catch (e: any) {
+      setConnResult({ reachable: false, latency_ms: null, message: e.response?.data?.detail || 'Connection test failed' })
+    } finally { setTestingConn(false) }
   }
 
   return (
@@ -169,9 +182,22 @@ export default function SettingsPage() {
                 : <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">⚠ Live Trading</span>
               }
             </div>
-            <Button onClick={handleSaveIBKR} disabled={savingIbkr}>
-              {savingIbkr ? 'Saving...' : 'Save IBKR Credentials'}
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={handleSaveIBKR} disabled={savingIbkr}>
+                {savingIbkr ? 'Saving...' : 'Save IBKR Credentials'}
+              </Button>
+              <Button variant="outline" className="border-[#1e2a3a]" onClick={handleTestConnection} disabled={testingConn}>
+                {testingConn ? <><Loader2 size={14} className="mr-1 animate-spin" /> Testing...</> : 'Test Connection'}
+              </Button>
+            </div>
+            {connResult && (
+              <div className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${connResult.reachable ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                {connResult.reachable
+                  ? <><CheckCircle size={14} /> Connected — {connResult.latency_ms}ms latency</>
+                  : <><XCircle size={14} /> {connResult.message}</>
+                }
+              </div>
+            )}
           </CardContent>
         </Card>
 
