@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Header } from '@/components/layout/header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -7,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { botsApi, executionsApi, api, subscriptionsApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { Play, Trash2, Upload, Clock, X, FileCode, Lock } from 'lucide-react'
+import { Play, Trash2, Upload, Clock, X, FileCode, Lock, Radio } from 'lucide-react'
 
 const categoryColors: Record<string, string> = {
   credit_spread: 'bg-blue-500/20 text-blue-400',
@@ -28,6 +29,7 @@ const SCHEDULE_TYPES = [
 ]
 
 export default function BotsPage() {
+  const router = useRouter()
   const [bots, setBots] = useState<any[]>([])
   const [user, setUser] = useState<any>(null)
   const [subscription, setSubscription] = useState<any>(null)
@@ -387,6 +389,16 @@ export default function BotsPage() {
                       {!hasSubscription && !isAdmin ? <Lock size={11} /> : <Play size={11} />}
                       {runningBots.has(bot.id) ? 'Running...' : hasSubscription || isAdmin ? 'Run Now' : 'Locked'}
                     </Button>
+
+                    {/* Live Monitor button */}
+                    {(hasSubscription || isAdmin) && (
+                      <Button size="sm" variant="outline"
+                        className="border-green-500/30 text-green-400 hover:text-green-300 hover:bg-green-500/10 h-8 gap-1 text-xs"
+                        title="Live Monitor"
+                        onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}>
+                        <Radio size={11} /> Live
+                      </Button>
+                    )}
 
                     {/* Schedule - admin only */}
                     {isAdmin && (
