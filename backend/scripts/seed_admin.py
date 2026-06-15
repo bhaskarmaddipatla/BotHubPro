@@ -24,7 +24,15 @@ SPX_BOTS = [
         "description": "Sells same-day SPX credit spreads using VWAP bias, opening range breakout, and VIX regime filtering. Targets 10–15 delta, manages at 50% profit or 200% loss. Max 4 trades/day.",
         "category": BotCategory.credit_spread,
         "risk_level": RiskLevel.medium,
-        "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "target_delta": 0.12, "max_trades_per_day": 4, "profit_target_pct": 50, "stop_loss_pct": 200, "trade_window_start": "09:45", "trade_window_end": "15:00"},
+        "configuration": {
+            "entry_file": "runner.py",
+            "symbol": "SPX", "dte": 0, "target_delta": 0.12,
+            "max_trades_per_day": 4, "profit_target_pct": 50, "stop_loss_pct": 200,
+            "trade_window_start": "09:45", "trade_window_end": "15:00",
+            "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
+            "git_branch": "claude/elegant-brown-n7xf4v",
+            "git_path": "bots/strategy/credit_spread",
+        },
         "schedule_cron": "45 9 * * 1-5",
         "is_marketplace": True,
         "marketplace_description": "Institutional-grade 0DTE SPX credit spread bot using VWAP bias engine, opening range breakout, GEX regime detection, and put/call wall analysis. Automated entry/exit with hard risk controls.",
@@ -111,7 +119,20 @@ def seed_admin():
         # Seed SPX bots if not already present
         existing_count = db.query(Bot).filter(Bot.user_id == admin.id).count()
         if existing_count > 0:
-            print(f"✓ {existing_count} bots already seeded")
+            # Patch git coordinates on existing bots that are missing them
+            for b in SPX_BOTS:
+                existing_bot = db.query(Bot).filter(Bot.user_id == admin.id, Bot.name == b["name"]).first()
+                if existing_bot and b["configuration"].get("git_repo"):
+                    cfg = dict(existing_bot.configuration or {})
+                    if not cfg.get("git_repo"):
+                        cfg.update({
+                            "git_repo":   b["configuration"]["git_repo"],
+                            "git_branch": b["configuration"]["git_branch"],
+                            "git_path":   b["configuration"]["git_path"],
+                        })
+                        existing_bot.configuration = cfg
+            db.commit()
+            print(f"✓ {existing_count} bots already seeded (git config patched if missing)")
             return
 
         for b in SPX_BOTS:

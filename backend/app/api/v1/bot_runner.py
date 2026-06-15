@@ -4,6 +4,7 @@ import json
 import socket
 import subprocess
 import time
+import shutil
 from pathlib import Path
 from uuid import UUID
 
@@ -46,6 +47,55 @@ def _read_pid(user_id, bot_id) -> int | None:
         return int(pid_path.read_text().strip())
     except Exception:
         return None
+
+
+def _sync_bot_from_git(bot_files_dir: Path, git_repo: str, git_branch: str, git_path: str) -> tuple[bool, str]:
+    """Clone or pull the bot code from GitHub. Returns (success, message)."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token:
+        # Inject token into HTTPS URL
+        repo_url = git_repo.replace("https://", f"https://{token}@")
+    else:
+        repo_url = git_repo
+
+    clone_dir = Path(f"/tmp/git_bots/{git_repo.rstrip('/').split('/')[-1].replace('.git', '')}")
+    try:
+        if clone_dir.exists():
+            result = subprocess.run(
+                ["git", "fetch", "--depth=1", "origin", git_branch],
+                cwd=str(clone_dir), capture_output=True, text=True, timeout=30
+            )
+            subprocess.run(
+                ["git", "reset", "--hard", f"origin/{git_branch}"],
+                cwd=str(clone_dir), capture_output=True, text=True, timeout=15
+            )
+        else:
+            clone_dir.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["git", "clone", "--depth=1", "--branch", git_branch, repo_url, str(clone_dir)],
+                capture_output=True, text=True, timeout=60, check=True
+            )
+
+        src = clone_dir / git_path
+        if not src.exists():
+            return False, f"Path '{git_path}' not found in repo after clone"
+
+        bot_files_dir.mkdir(parents=True, exist_ok=True)
+        # Copy all files from git_path into bot_files_dir
+        for item in src.iterdir():
+            dest = bot_files_dir / item.name
+            if item.is_dir():
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
+
+        return True, f"Synced from {git_repo} branch={git_branch} path={git_path}"
+    except subprocess.CalledProcessError as e:
+        return False, f"Git error: {e.stderr[:300] if e.stderr else str(e)}"
+    except Exception as e:
+        return False, f"Sync error: {e}"
 
 
 def _is_running(pid: int) -> bool:
@@ -91,8 +141,18 @@ async def start_bot(
     # Determine runner script
     bot_files_dir = Path(f"/app/bot_files/{current_user.id}/{bot_id}")
     entry_file = "runner.py"
-    if bot.configuration and isinstance(bot.configuration, dict):
-        entry_file = bot.configuration.get("entry_file", "runner.py")
+    cfg = bot.configuration if isinstance(bot.configuration, dict) else {}
+    entry_file = cfg.get("entry_file", "runner.py")
+
+    # Pull latest code from git if configured
+    git_repo   = cfg.get("git_repo", "")
+    git_branch = cfg.get("git_branch", "main")
+    git_path   = cfg.get("git_path", "")
+    if git_repo and git_path:
+        ok, msg = _sync_bot_from_git(bot_files_dir, git_repo, git_branch, git_path)
+        if not ok:
+            raise HTTPException(status_code=500, detail=f"Failed to sync bot from GitHub: {msg}")
+
     runner_path = bot_files_dir / entry_file
 
     # If no bot file uploaded yet, write a simulation stub so the process starts
@@ -227,6 +287,29 @@ async def bot_trade_log(
         return json.loads(trade_log_path.read_text())
     except Exception:
         return []
+
+
+@router.post("/{bot_id}/sync")
+async def sync_bot_code(
+    bot_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Pull latest bot code from GitHub without starting the bot."""
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    cfg = bot.configuration if isinstance(bot.configuration, dict) else {}
+    git_repo   = cfg.get("git_repo", "")
+    git_branch = cfg.get("git_branch", "main")
+    git_path   = cfg.get("git_path", "")
+    if not git_repo or not git_path:
+        raise HTTPException(status_code=400, detail="Bot has no git_repo/git_path configured")
+    bot_files_dir = Path(f"/app/bot_files/{current_user.id}/{bot_id}")
+    ok, msg = _sync_bot_from_git(bot_files_dir, git_repo, git_branch, git_path)
+    if not ok:
+        raise HTTPException(status_code=500, detail=msg)
+    return {"synced": True, "message": msg}
 
 
 @router.post("/{bot_id}/test-connection")
