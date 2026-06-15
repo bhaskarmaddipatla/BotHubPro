@@ -1,6 +1,13 @@
+"use client"
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import Cookies from 'js-cookie'
 
 export default function Home() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  useEffect(() => {
+    setIsLoggedIn(!!Cookies.get('access_token'))
+  }, [])
   return (
     <div className="min-h-screen bg-[#0a0e1a] text-white">
       {/* Navigation */}
@@ -16,8 +23,14 @@ export default function Home() {
             <a href="#marketplace" className="hover:text-white transition-colors">Marketplace</a>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/auth/login" className="text-sm text-gray-400 hover:text-white transition-colors">Sign In</Link>
-            <Link href="/auth/register" className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Get Started</Link>
+            {isLoggedIn ? (
+              <Link href="/dashboard" className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Go to Dashboard</Link>
+            ) : (
+              <>
+                <Link href="/auth/login" className="text-sm text-gray-400 hover:text-white transition-colors">Sign In</Link>
+                <Link href="/auth/register" className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Get Started</Link>
+              </>
+            )}
           </div>
         </div>
       </nav>
