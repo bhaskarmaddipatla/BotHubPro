@@ -66,6 +66,9 @@ async def start_bot(
 
     bot = db.query(Bot).filter(Bot.id == bot_id, Bot.user_id == current_user.id).first()
     if not bot:
+        # Also allow running marketplace bots the user has access to
+        bot = db.query(Bot).filter(Bot.id == bot_id, Bot.is_marketplace == True).first()
+    if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
 
     data_path = _data_dir(current_user.id, bot_id)
@@ -92,6 +95,26 @@ async def start_bot(
         entry_file = bot.configuration.get("entry_file", "runner.py")
     runner_path = bot_files_dir / entry_file
 
+    # If no bot file uploaded yet, write a simulation stub so the process starts
+    if not runner_path.exists():
+        bot_files_dir.mkdir(parents=True, exist_ok=True)
+        runner_path.write_text(
+            "import time, json, os, sys\n"
+            "config_path = sys.argv[2] if len(sys.argv) > 2 else None\n"
+            "data_dir = os.environ.get('DATA_DIR', '/tmp')\n"
+            "print(f'[SIM] Bot started in simulation mode (no real bot file uploaded)')\n"
+            "print(f'[SIM] IBKR Host: {os.environ.get(\"IBKR_HOST\")} Port: {os.environ.get(\"IBKR_PORT\")}')\n"
+            "print(f'[SIM] Paper trading: {os.environ.get(\"IBKR_PAPER\")}')\n"
+            "# Write empty positions so the live page shows something\n"
+            "with open(os.path.join(data_dir, 'positions.json'), 'w') as f:\n"
+            "    json.dump([], f)\n"
+            "with open(os.path.join(data_dir, 'trade_log.json'), 'w') as f:\n"
+            "    json.dump([], f)\n"
+            "print('[SIM] Simulation running — upload a real runner.py to execute live trades')\n"
+            "while True:\n"
+            "    time.sleep(30)\n"
+        )
+
     env = os.environ.copy()
     env.update({
         "DATA_DIR": str(data_path),
@@ -104,13 +127,16 @@ async def start_bot(
         "USER_ID": str(current_user.id),
     })
 
-    proc = subprocess.Popen(
-        ["python", str(runner_path), "--config", str(config_path)],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=str(bot_files_dir),
-    )
+    try:
+        proc = subprocess.Popen(
+            ["python", str(runner_path), "--config", str(config_path)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=str(bot_files_dir),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to spawn bot process: {e}")
 
     (data_path / "bot.pid").write_text(str(proc.pid))
 
