@@ -115,7 +115,7 @@ export const marketplaceApi = {
 }
 
 export const backtestsApi = {
-  run: (data: object) => api.post('/api/v1/backtests/run', data),
+  run: (data: object) => api.post('/api/v1/backtests/run', data, { timeout: 60000 }),
 }
 
 export const botRunnerApi = {
