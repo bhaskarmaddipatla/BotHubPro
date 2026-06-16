@@ -5,12 +5,16 @@ import socket
 import subprocess
 import time
 import shutil
+import secrets
+import hmac
 from pathlib import Path
 from uuid import UUID
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.core.database import get_db
 from app.api.deps import get_current_active_user
@@ -21,6 +25,31 @@ from app.models.execution import Execution, ExecutionStatus, ExecutionTrigger
 from app.api.v1.broker_credentials import simple_decrypt
 
 router = APIRouter()
+
+# ── Service token helpers ─────────────────────────────────────────────────────
+# Each bot run gets a long-lived service token stored at {data_dir}/service_token.
+# The subprocess uses it for callbacks (trade-event, heartbeat) so callbacks
+# work regardless of whether the user's JWT has expired or the user has logged out.
+
+def _service_token_path(user_id, bot_id) -> Path:
+    return _data_dir(user_id, bot_id) / "service_token"
+
+def _generate_service_token(user_id, bot_id) -> str:
+    token = secrets.token_hex(32)
+    _service_token_path(user_id, bot_id).write_text(token)
+    return token
+
+def _read_service_token(user_id, bot_id) -> str | None:
+    try:
+        return _service_token_path(user_id, bot_id).read_text().strip()
+    except Exception:
+        return None
+
+def _verify_service_token(user_id, bot_id, provided: str) -> bool:
+    stored = _read_service_token(user_id, bot_id)
+    if not stored:
+        return False
+    return hmac.compare_digest(stored, provided)
 
 
 def _get_ibkr_creds(user_id, db: Session) -> dict:
@@ -184,6 +213,19 @@ async def start_bot(
             "    time.sleep(30)\n"
         )
 
+    # Generate a long-lived service token for this bot run.
+    # The subprocess uses it for all callbacks so they work regardless of
+    # whether the user's JWT has expired or the user has logged out.
+    service_token = _generate_service_token(current_user.id, bot_id)
+
+    # Write meta so the /trade-event endpoint can resolve user_id from bot_id alone
+    (data_path / "meta.json").write_text(json.dumps({
+        "user_id": str(current_user.id),
+        "bot_id": str(bot_id),
+        "started_at": datetime.utcnow().isoformat(),
+    }))
+
+    backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
     env = os.environ.copy()
     env.update({
         "DATA_DIR": str(data_path),
@@ -194,7 +236,11 @@ async def start_bot(
         "IBKR_PAPER": str(config["paper_trading"]).lower(),
         "BOT_ID": str(bot_id),
         "USER_ID": str(current_user.id),
-        "NOTIFY_URL": f"{os.environ.get('BACKEND_URL', 'http://localhost:8000')}/api/v1/bot-runner/{bot_id}/trade-event",
+        # Service token — used instead of user JWT for all bot → platform callbacks
+        "BOT_SERVICE_TOKEN": service_token,
+        "NOTIFY_URL": f"{backend_url}/api/v1/bot-runner/{bot_id}/trade-event",
+        "HEARTBEAT_URL": f"{backend_url}/api/v1/bot-runner/{bot_id}/heartbeat",
+        "CLOSE_URL": f"{backend_url}/api/v1/bot-runner/{bot_id}/position-closed",
         "NOTIFY_IS_SIM": "true" if config.get("paper_trading", True) else "false",
     })
     # Pass STRATEGY and any other string config keys as env vars so shared
@@ -362,6 +408,53 @@ async def test_connection(
         }
 
 
+# ── Bot service auth ──────────────────────────────────────────────────────────
+# Endpoints called by the bot subprocess accept EITHER:
+#   1. A valid user JWT (Authorization: Bearer <jwt>)   — for UI-initiated calls
+#   2. A bot service token (X-Bot-Service-Token: <token>) — for subprocess callbacks
+# This means callbacks keep working after the user's JWT expires or user logs out.
+
+async def get_bot_auth(
+    bot_id: UUID,
+    x_bot_service_token: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+) -> User:
+    # Try service token first (bot subprocess path)
+    if x_bot_service_token:
+        # Find which user owns this bot run by reading meta.json
+        data_root = Path("/data")
+        meta = None
+        for user_dir in data_root.iterdir() if data_root.exists() else []:
+            meta_path = user_dir / str(bot_id) / "meta.json"
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text())
+                    break
+                except Exception:
+                    pass
+        if not meta:
+            raise HTTPException(status_code=401, detail="Bot run not found or not started")
+        user_id = meta["user_id"]
+        if not _verify_service_token(user_id, str(bot_id), x_bot_service_token):
+            raise HTTPException(status_code=401, detail="Invalid bot service token")
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return user
+
+    # Fall back to JWT (user session path)
+    if authorization and authorization.startswith("Bearer "):
+        from app.core.security import decode_token
+        token = authorization.split(" ", 1)[1]
+        payload = decode_token(token)
+        if payload:
+            user = db.query(User).filter(User.id == payload.get("sub")).first()
+            if user:
+                return user
+    raise HTTPException(status_code=401, detail="Authentication required (user JWT or bot service token)")
+
+
 @router.get("/trades/today")
 async def trades_today(
     current_user: User = Depends(get_current_active_user),
@@ -432,10 +525,11 @@ class TradeEvent(BaseModel):
 async def trade_event(
     bot_id: UUID,
     event: TradeEvent,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_bot_auth),
     db: Session = Depends(get_db),
 ):
-    """Called by the bot subprocess when a trade is placed. Sends Telegram notification."""
+    """Called by the bot subprocess when a trade is placed.
+    Accepts user JWT or bot service token — works even after user logs out."""
     from app.services.telegram import send_telegram, format_trade_alert
 
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
@@ -453,3 +547,105 @@ async def trade_event(
     msg = format_trade_alert(bot_name, event.dict(), event.is_simulation)
     ok = send_telegram(user.telegram_chat_id, msg)
     return {"notified": ok}
+
+
+class HeartbeatBody(BaseModel):
+    status: str = "running"      # "running" | "closing_positions" | "all_closed" | "error"
+    open_positions: int = 0
+    message: str = ""
+
+@router.post("/{bot_id}/heartbeat")
+async def bot_heartbeat(
+    bot_id: UUID,
+    body: HeartbeatBody,
+    current_user: User = Depends(get_bot_auth),
+    db: Session = Depends(get_db),
+):
+    """Bot subprocess calls this periodically so the platform knows it's alive.
+    Works with service token — no user session required."""
+    data_path = _data_dir(current_user.id, bot_id)
+    heartbeat = {
+        "ts": datetime.utcnow().isoformat(),
+        "status": body.status,
+        "open_positions": body.open_positions,
+        "message": body.message,
+    }
+    (data_path / "heartbeat.json").write_text(json.dumps(heartbeat))
+
+    # If bot reports all positions closed, mark execution as completed
+    if body.status == "all_closed":
+        execution = (
+            db.query(Execution)
+            .filter(
+                Execution.user_id == current_user.id,
+                Execution.bot_id == bot_id,
+                Execution.status == ExecutionStatus.running,
+            )
+            .order_by(Execution.created_at.desc())
+            .first()
+        )
+        if execution:
+            execution.status = ExecutionStatus.completed
+            execution.result_data = {**(execution.result_data or {}), "closed_reason": body.message}
+            db.commit()
+        # Clean up service token so it can't be reused
+        try:
+            _service_token_path(current_user.id, bot_id).unlink()
+        except Exception:
+            pass
+
+    return {"ack": True, "server_time": datetime.utcnow().isoformat()}
+
+
+class PositionClosedBody(BaseModel):
+    symbol: str = ""
+    action: str = "CLOSED"
+    pnl: str = ""
+    reason: str = ""     # "take_profit" | "stop_loss" | "eod" | "manual"
+    is_simulation: bool = True
+    remaining_positions: int = 0
+
+@router.post("/{bot_id}/position-closed")
+async def position_closed(
+    bot_id: UUID,
+    body: PositionClosedBody,
+    current_user: User = Depends(get_bot_auth),
+    db: Session = Depends(get_db),
+):
+    """Called by the bot when it closes a position (EOD, stop loss, take profit).
+    Sends a Telegram close alert. Works without user session."""
+    from app.services.telegram import send_telegram
+
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    bot_name = bot.name if bot else str(bot_id)
+    user = db.query(User).filter(User.id == current_user.id).first()
+
+    if user and user.telegram_chat_id:
+        mode = "🟡 SIM" if body.is_simulation else "🟢 LIVE"
+        reason_labels = {
+            "take_profit": "✅ Take Profit",
+            "stop_loss": "🛑 Stop Loss",
+            "eod": "🕐 End of Day Close",
+            "manual": "👤 Manual Close",
+        }
+        reason_label = reason_labels.get(body.reason, body.reason)
+        msg = (
+            f"<b>BotHub Pro — Position Closed</b>  {mode}\n"
+            f"🤖 <b>{bot_name}</b>\n\n"
+            f"<b>Symbol:</b> {body.symbol}\n"
+            f"<b>Reason:</b> {reason_label}\n"
+        )
+        if body.pnl:
+            msg += f"<b>P&L:</b> {body.pnl}\n"
+        if body.remaining_positions > 0:
+            msg += f"\n<i>{body.remaining_positions} position(s) still open — bot continuing…</i>"
+        else:
+            msg += "\n<i>All positions closed. Bot session complete.</i>"
+
+        send = (body.is_simulation and user.telegram_notify_sim) or \
+               (not body.is_simulation and user.telegram_notify_live)
+        if send:
+            from app.services.telegram import send_telegram
+            send_telegram(user.telegram_chat_id, msg)
+
+    return {"ack": True}
