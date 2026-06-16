@@ -1,7 +1,8 @@
 "use client"
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { marketplaceApi } from '@/lib/api'
+import Cookies from 'js-cookie'
+import { marketplaceApi, userApi } from '@/lib/api'
 import { TrendingUp, TrendingDown, Zap, Star } from 'lucide-react'
 
 const riskColors: Record<string, string> = {
@@ -12,9 +13,18 @@ const riskColors: Record<string, string> = {
 
 export default function MarketplacePage() {
   const [bots, setBots] = useState<any[]>([])
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     marketplaceApi.listBots().then(r => setBots(r.data.bots)).catch(() => {})
+    const token = Cookies.get('access_token')
+    if (token) {
+      setIsLoggedIn(true)
+      userApi.getMe().then(r => {
+        setIsAdmin(r.data.is_admin === true || r.data.role === 'admin')
+      }).catch(() => {})
+    }
   }, [])
 
   return (
@@ -25,9 +35,19 @@ export default function MarketplacePage() {
             <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center font-bold text-sm">B</div>
             <span className="text-xl font-bold">BotHub Pro</span>
           </Link>
-          <div className="flex gap-3">
-            <Link href="/auth/login" className="text-sm text-gray-400 hover:text-white">Sign In</Link>
-            <Link href="/dashboard" className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">Dashboard</Link>
+          <div className="flex gap-3 items-center">
+            {isLoggedIn ? (
+              <Link href="/dashboard" className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link href="/auth/login" className="text-sm text-gray-400 hover:text-white transition-colors">Sign In</Link>
+                <Link href="/auth/register" className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -53,11 +73,11 @@ export default function MarketplacePage() {
                   {bot.risk_level} risk
                 </span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 capitalize">
-                  {bot.category.replace('_', ' ')}
+                  {bot.category?.replace('_', ' ')}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 mb-5">
+              <div className="grid grid-cols-2 gap-2 mb-4">
                 <div className="bg-[#0a0e1a] rounded-lg p-3">
                   <div className="text-gray-400 text-xs mb-1 flex items-center gap-1"><TrendingUp size={10} /> Win Rate</div>
                   <div className="text-green-400 font-bold">{bot.win_rate}%</div>
@@ -76,18 +96,39 @@ export default function MarketplacePage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
+              <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>{bot.total_trades} total trades</span>
                 <span className="bg-green-500/10 text-green-400 px-2 py-0.5 rounded-full">Live</span>
               </div>
-
-              <Link href="/auth/register"
-                className="block w-full text-center bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg text-sm font-medium transition-colors">
-                Subscribe to Bot
-              </Link>
             </div>
           ))}
         </div>
+
+        {/* Single subscribe CTA — hidden for admins */}
+        {!isAdmin && (
+          <div className="mt-12 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20 rounded-2xl p-8 text-center">
+            <h2 className="text-2xl font-bold mb-2">Access All Bots with One Subscription</h2>
+            <p className="text-gray-400 mb-6 max-w-xl mx-auto">
+              Subscribe to BotHub Pro and deploy any strategy in minutes. All bots are included — no per-bot fees.
+            </p>
+            {isLoggedIn ? (
+              <Link href="/dashboard/subscription"
+                className="inline-block bg-blue-500 hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-medium transition-colors text-lg">
+                View Subscription Plans
+              </Link>
+            ) : (
+              <div className="flex items-center justify-center gap-4">
+                <Link href="/auth/register"
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-medium transition-colors text-lg">
+                  Start Free Trial
+                </Link>
+                <Link href="/auth/login" className="text-gray-400 hover:text-white text-sm transition-colors">
+                  Already have an account? Sign in →
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
