@@ -362,6 +362,56 @@ async def test_connection(
         }
 
 
+@router.get("/trades/today")
+async def trades_today(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate today's trades across all of the user's active bots."""
+    from datetime import date as date_type
+    today = date_type.today().isoformat()
+
+    bots = db.query(Bot).filter(
+        (Bot.user_id == current_user.id) | (Bot.is_marketplace == True)
+    ).all()
+
+    all_trades = []
+    for bot in bots:
+        trade_log_path = _data_dir(current_user.id, bot.id) / "trade_log.json"
+        try:
+            trades = json.loads(trade_log_path.read_text())
+            if not isinstance(trades, list):
+                continue
+            for t in trades:
+                trade_date = (t.get("date") or t.get("time") or t.get("timestamp") or "")[:10]
+                if trade_date == today:
+                    all_trades.append({
+                        **t,
+                        "bot_id": str(bot.id),
+                        "bot_name": bot.name,
+                    })
+        except Exception:
+            continue
+
+    # Sort by time field if present, else by date
+    all_trades.sort(key=lambda t: t.get("time") or t.get("timestamp") or t.get("date") or "", reverse=True)
+
+    total_pnl = sum(
+        float(str(t.get("pnl") or 0).replace("$", "").replace(",", "") or 0)
+        for t in all_trades
+    )
+    winners = sum(1 for t in all_trades if float(str(t.get("pnl") or 0).replace("$", "").replace(",", "") or 0) > 0)
+
+    return {
+        "date": today,
+        "trades": all_trades,
+        "total_trades": len(all_trades),
+        "total_pnl": round(total_pnl, 2),
+        "winners": winners,
+        "losers": len(all_trades) - winners,
+    }
+
+
 class TradeEvent(BaseModel):
     action: str = ""
     symbol: str = "SPX"

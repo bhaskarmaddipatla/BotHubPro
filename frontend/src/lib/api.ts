@@ -119,6 +119,7 @@ export const backtestsApi = {
 }
 
 export const botRunnerApi = {
+  todayTrades: () => api.get('/api/v1/bot-runner/trades/today'),
   start: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/start`),
   startWithParams: (botId: string, tradeParams: Record<string, number>) =>
     api.post(`/api/v1/bot-runner/${botId}/start`, { trade_params: tradeParams }),
