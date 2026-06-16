@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -107,9 +108,13 @@ def _is_running(pid: int) -> bool:
         return False
 
 
+class StartBotRequest(BaseModel):
+    trade_params: dict = {}
+
 @router.post("/{bot_id}/start")
 async def start_bot(
     bot_id: UUID,
+    body: StartBotRequest = StartBotRequest(),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -134,6 +139,9 @@ async def start_bot(
         "paper_trading": creds.get("paper_trading", True),
         "ibkr_allow_trading": False,
         "data_dir": str(data_path),
+        # Merge bot base config then user-supplied trade params on top
+        **(bot.configuration or {}),
+        **(body.trade_params or {}),
     }
 
     config_path = data_path / "config.json"
