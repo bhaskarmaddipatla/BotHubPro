@@ -21,7 +21,7 @@ Base.metadata.create_all(bind=engine)
 SPX_BOTS = [
     {
         "name": "SPX 0DTE Credit Spread",
-        "description": "Sells same-day SPX credit spreads using VWAP bias, opening range breakout, and VIX regime filtering. Targets 10–15 delta, manages at 50% profit or 200% loss. Max 4 trades/day.",
+        "description": "Sells same-day SPX credit spreads using VWAP bias, opening range breakout, and VIX regime filtering. Targets 10–15 delta. Takes profit at 50% of credit received; cuts loss at 200% of credit received. Max 4 trades/day.",
         "category": BotCategory.credit_spread,
         "risk_level": RiskLevel.medium,
         "configuration": {
@@ -39,7 +39,7 @@ SPX_BOTS = [
     },
     {
         "name": "SPX Iron Fly",
-        "description": "Sells ATM iron flies on SPX 0DTE. Profits from low-volatility sideways action. Manages at 25% profit, stops at 150% loss.",
+        "description": "Sells ATM iron flies on SPX 0DTE. Profits from low-volatility sideways action. Takes profit at 25% of credit received; cuts loss at 150% of credit received.",
         "category": BotCategory.iron_fly,
         "risk_level": RiskLevel.high,
         "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "iron_fly", "wing_width": 50, "profit_target_pct": 25, "stop_loss_pct": 150},
@@ -49,7 +49,7 @@ SPX_BOTS = [
     },
     {
         "name": "SPX Iron Condor",
-        "description": "Sells OTM iron condors on SPX targeting the 10-delta strikes on both sides. Enters after 10am when the opening range is established.",
+        "description": "Sells OTM iron condors on SPX targeting the 10-delta strikes on both sides. Enters after 10am when the opening range is established. Takes profit at 50% of credit received; cuts loss at 200% of credit received.",
         "category": BotCategory.iron_condor,
         "risk_level": RiskLevel.low,
         "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "iron_condor", "target_delta": 0.10, "wing_width": 25, "profit_target_pct": 50, "stop_loss_pct": 200},
@@ -59,7 +59,7 @@ SPX_BOTS = [
     },
     {
         "name": "SPX Butterfly",
-        "description": "Buys SPX broken-wing butterflies targeting the expected move. Best on high-IV days when the market is likely to pin.",
+        "description": "Buys SPX broken-wing butterflies targeting the expected move. Best on high-IV days when the market is likely to pin. Takes profit at 100% of debit paid; stops at 100% of debit paid.",
         "category": BotCategory.butterfly,
         "risk_level": RiskLevel.medium,
         "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "butterfly", "broken_wing": True, "profit_target_pct": 100, "stop_loss_pct": 100},
@@ -69,7 +69,7 @@ SPX_BOTS = [
     },
     {
         "name": "SPX Gamma Bias",
-        "description": "Reads GEX data to determine market dealer hedging bias. Trades directionally with credit spreads aligned to the gamma wall.",
+        "description": "Reads GEX data to determine market dealer hedging bias. Trades directionally with credit spreads aligned to the gamma wall. Takes profit at 60% of credit received; cuts loss at 150% of credit received.",
         "category": BotCategory.credit_spread,
         "risk_level": RiskLevel.high,
         "configuration": {
@@ -86,7 +86,7 @@ SPX_BOTS = [
     },
     {
         "name": "SPX Premarket Gap",
-        "description": "Trades the SPX premarket gap fill pattern. Enters a credit spread against the gap direction within the first 30 minutes of market open.",
+        "description": "Trades the SPX premarket gap fill pattern. Enters a credit spread against the gap direction within the first 30 minutes of market open. Takes profit at 50% of credit received; cuts loss at 200% of credit received.",
         "category": BotCategory.credit_spread,
         "risk_level": RiskLevel.medium,
         "configuration": {
