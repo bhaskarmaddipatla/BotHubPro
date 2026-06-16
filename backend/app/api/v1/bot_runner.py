@@ -195,6 +195,13 @@ async def start_bot(
         "BOT_ID": str(bot_id),
         "USER_ID": str(current_user.id),
     })
+    # Pass STRATEGY and any other string config keys as env vars so shared
+    # engine runners (e.g. bots/engine/runner.py) can select the right strategy
+    for k, v in cfg.items():
+        if isinstance(v, str) and k not in ("git_repo", "git_branch", "git_path", "entry_file"):
+            env[k.upper()] = v
+        elif isinstance(v, (int, float, bool)):
+            env[k.upper()] = str(v).lower() if isinstance(v, bool) else str(v)
 
     try:
         proc = subprocess.Popen(

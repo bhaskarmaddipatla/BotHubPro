@@ -72,7 +72,14 @@ SPX_BOTS = [
         "description": "Reads GEX data to determine market dealer hedging bias. Trades directionally with credit spreads aligned to the gamma wall.",
         "category": BotCategory.credit_spread,
         "risk_level": RiskLevel.high,
-        "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "gamma_bias", "use_gex": True, "profit_target_pct": 60, "stop_loss_pct": 150},
+        "configuration": {
+            "entry_file": "runner.py", "symbol": "SPX", "dte": 0,
+            "strategy": "gamma_bias", "use_gex": True,
+            "profit_target_pct": 60, "stop_loss_pct": 150,
+            "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
+            "git_branch": "claude/elegant-brown-n7xf4v",
+            "git_path": "bots/engine",
+        },
         "schedule_cron": "45 9 * * 1-5",
         "is_marketplace": True,
         "marketplace_description": "GEX-driven directional credit spread. Uses put/call walls and dealer gamma positioning to pick spread direction.",
@@ -82,7 +89,14 @@ SPX_BOTS = [
         "description": "Trades the SPX premarket gap fill pattern. Enters a credit spread against the gap direction within the first 30 minutes of market open.",
         "category": BotCategory.credit_spread,
         "risk_level": RiskLevel.medium,
-        "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "premarket_gap", "gap_threshold_pts": 10, "profit_target_pct": 50, "stop_loss_pct": 200},
+        "configuration": {
+            "entry_file": "runner.py", "symbol": "SPX", "dte": 0,
+            "strategy": "premarket_gap", "gap_threshold_pts": 10,
+            "profit_target_pct": 50, "stop_loss_pct": 200,
+            "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
+            "git_branch": "claude/elegant-brown-n7xf4v",
+            "git_path": "bots/engine",
+        },
         "schedule_cron": "30 9 * * 1-5",
         "is_marketplace": True,
         "marketplace_description": "Fades the SPX premarket gap using credit spreads. Historically gaps fill 65%+ of the time within the first hour.",
@@ -119,20 +133,24 @@ def seed_admin():
         # Seed SPX bots if not already present
         existing_count = db.query(Bot).filter(Bot.user_id == admin.id).count()
         if existing_count > 0:
-            # Patch git coordinates on existing bots that are missing them
+            # Patch git coordinates and strategy on existing bots that are missing them
+            patched = 0
             for b in SPX_BOTS:
+                if not b["configuration"].get("git_repo"):
+                    continue
                 existing_bot = db.query(Bot).filter(Bot.user_id == admin.id, Bot.name == b["name"]).first()
-                if existing_bot and b["configuration"].get("git_repo"):
+                if existing_bot:
                     cfg = dict(existing_bot.configuration or {})
-                    if not cfg.get("git_repo"):
-                        cfg.update({
-                            "git_repo":   b["configuration"]["git_repo"],
-                            "git_branch": b["configuration"]["git_branch"],
-                            "git_path":   b["configuration"]["git_path"],
-                        })
+                    changed = False
+                    for key in ("git_repo", "git_branch", "git_path", "strategy"):
+                        if key in b["configuration"] and cfg.get(key) != b["configuration"][key]:
+                            cfg[key] = b["configuration"][key]
+                            changed = True
+                    if changed:
                         existing_bot.configuration = cfg
+                        patched += 1
             db.commit()
-            print(f"✓ {existing_count} bots already seeded (git config patched if missing)")
+            print(f"✓ {existing_count} bots already seeded ({patched} patched with git/strategy config)")
             return
 
         for b in SPX_BOTS:
