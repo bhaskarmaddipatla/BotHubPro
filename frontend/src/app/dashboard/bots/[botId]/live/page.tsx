@@ -4,11 +4,9 @@ import { useParams } from 'next/navigation'
 import { Header } from '@/components/layout/header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { botRunnerApi, botsApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { Play, Square, Loader2, Info } from 'lucide-react'
+import { Play, Square, Loader2, Info, AlertTriangle, X } from 'lucide-react'
 
 interface Position {
   symbol?: string; position?: string | number; qty?: string | number
@@ -28,50 +26,119 @@ const riskColors: Record<string, string> = {
   medium: 'bg-yellow-500/20 text-yellow-400',
   high: 'bg-red-500/20 text-red-400',
 }
-
 const categoryLabels: Record<string, string> = {
   credit_spread: 'Credit Spread', iron_condor: 'Iron Condor',
   iron_fly: 'Iron Fly', butterfly: 'Butterfly',
   pmcc: 'PMCC', calendar: 'Calendar', custom: 'Custom',
 }
 
-// Per-category parameter definitions
-const PARAM_DEFS: Record<string, { key: string; label: string; type: 'number' | 'select'; min?: number; max?: number; step?: number; options?: { value: string; label: string }[]; tooltip: string }[]> = {
+const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; min?: number; max?: number; step?: number; tooltip: string }[]> = {
   credit_spread: [
-    { key: 'contracts', label: 'Contracts', type: 'number', min: 1, max: 50, step: 1, tooltip: 'Number of spread contracts per trade' },
-    { key: 'spread_width', label: 'Spread Width (pts)', type: 'number', min: 1, max: 50, step: 1, tooltip: 'Distance between long and short strike in index points' },
-    { key: 'short_strike_delta', label: 'Short Strike Delta', type: 'number', min: 0.05, max: 0.50, step: 0.01, tooltip: 'Target delta for the short leg (e.g. 0.20 = 20 delta, further OTM = lower delta)' },
-    { key: 'max_loss_per_trade', label: 'Max Loss Per Trade ($)', type: 'number', min: 100, max: 10000, step: 50, tooltip: 'Hard dollar stop — bot exits if unrealised loss reaches this amount' },
-    { key: 'take_profit_pct', label: 'Take Profit (% of credit received)', type: 'number', min: 10, max: 100, step: 5, tooltip: 'Close trade when P&L reaches this % of the opening credit. E.g. 50 means close when you have banked half the credit received.' },
-    { key: 'max_trades_per_day', label: 'Max Trades / Day', type: 'number', min: 1, max: 10, step: 1, tooltip: 'Maximum number of new entries allowed per trading day' },
+    { key: 'contracts',          label: 'Contracts',       min: 1,    max: 50,    step: 1,    tooltip: 'Number of spread contracts per trade' },
+    { key: 'spread_width',       label: 'Spread Width',    unit: 'pts', min: 1,  max: 50,    step: 1,    tooltip: 'Distance between long and short strike in index points' },
+    { key: 'short_strike_delta', label: 'Short Δ',         min: 0.05, max: 0.50, step: 0.01, tooltip: 'Target delta for the short leg (0.20 = 20Δ, further OTM = lower Δ)' },
+    { key: 'take_profit_pct',    label: 'Take Profit',     unit: '% of credit', min: 10, max: 100, step: 5, tooltip: 'Close when P&L reaches this % of opening credit received' },
+    { key: 'max_loss_per_trade', label: 'Max Loss',        unit: '$', min: 100,  max: 10000, step: 50,   tooltip: 'Hard dollar stop — exit if unrealised loss reaches this' },
+    { key: 'max_trades_per_day', label: 'Max Trades/Day',  min: 1,    max: 10,   step: 1,    tooltip: 'Maximum new entries allowed per trading day' },
   ],
   iron_condor: [
-    { key: 'contracts', label: 'Contracts', type: 'number', min: 1, max: 50, step: 1, tooltip: 'Number of condor contracts per trade' },
-    { key: 'wing_width', label: 'Wing Width (pts)', type: 'number', min: 5, max: 100, step: 5, tooltip: 'Width of each spread leg in index points' },
-    { key: 'target_delta', label: 'Short Strike Delta', type: 'number', min: 0.05, max: 0.30, step: 0.01, tooltip: 'Target delta for both short strikes (call and put sides)' },
-    { key: 'profit_target_pct', label: 'Take Profit (% of credit received)', type: 'number', min: 10, max: 75, step: 5, tooltip: 'Close entire condor when P&L reaches this % of opening credit received' },
-    { key: 'stop_loss_pct', label: 'Stop Loss (% of credit received)', type: 'number', min: 100, max: 300, step: 25, tooltip: 'Exit when loss equals this % of opening credit. E.g. 200 means max loss = 2× the credit received.' },
+    { key: 'contracts',        label: 'Contracts',     min: 1,    max: 50,   step: 1,    tooltip: 'Number of condor contracts per trade' },
+    { key: 'wing_width',       label: 'Wing Width',    unit: 'pts', min: 5, max: 100,  step: 5,    tooltip: 'Width of each spread leg in index points' },
+    { key: 'target_delta',     label: 'Short Δ',       min: 0.05, max: 0.30, step: 0.01, tooltip: 'Target delta for both short strikes (call and put sides)' },
+    { key: 'profit_target_pct',label: 'Take Profit',   unit: '% of credit', min: 10, max: 75,  step: 5, tooltip: 'Close entire condor when P&L reaches this % of credit received' },
+    { key: 'stop_loss_pct',    label: 'Stop Loss',     unit: '% of credit', min: 100, max: 300, step: 25, tooltip: 'Exit when loss = this % of credit received (200 = 2× credit)' },
   ],
   iron_fly: [
-    { key: 'contracts', label: 'Contracts', type: 'number', min: 1, max: 50, step: 1, tooltip: 'Number of iron fly contracts per trade' },
-    { key: 'wing_width', label: 'Wing Width (pts)', type: 'number', min: 10, max: 100, step: 5, tooltip: 'Distance from the ATM short strike to the long wing strike' },
-    { key: 'profit_target_pct', label: 'Take Profit (% of credit received)', type: 'number', min: 10, max: 50, step: 5, tooltip: 'Close when P&L reaches this % of opening credit. Iron flies typically target 25–35%.' },
-    { key: 'stop_loss_pct', label: 'Stop Loss (% of credit received)', type: 'number', min: 100, max: 300, step: 25, tooltip: 'Exit when loss equals this % of opening credit received' },
+    { key: 'contracts',        label: 'Contracts',   min: 1,    max: 50,   step: 1,    tooltip: 'Number of iron fly contracts per trade' },
+    { key: 'wing_width',       label: 'Wing Width',  unit: 'pts', min: 10, max: 100, step: 5,    tooltip: 'Distance from ATM short strike to long wing' },
+    { key: 'profit_target_pct',label: 'Take Profit', unit: '% of credit', min: 10, max: 50, step: 5, tooltip: 'Close when P&L reaches this % of opening credit' },
+    { key: 'stop_loss_pct',    label: 'Stop Loss',   unit: '% of credit', min: 100, max: 300, step: 25, tooltip: 'Exit when loss = this % of opening credit received' },
   ],
   butterfly: [
-    { key: 'contracts', label: 'Contracts', type: 'number', min: 1, max: 20, step: 1, tooltip: 'Number of butterfly contracts per trade' },
-    { key: 'profit_target_pct', label: 'Take Profit (% of debit paid)', type: 'number', min: 50, max: 200, step: 10, tooltip: 'Close when profit equals this % of the debit paid to enter. E.g. 100 means double your money on the trade.' },
-    { key: 'stop_loss_pct', label: 'Stop Loss (% of debit paid)', type: 'number', min: 50, max: 100, step: 10, tooltip: 'Exit when loss equals this % of the debit paid. E.g. 100 means you lose the full premium paid.' },
+    { key: 'contracts',        label: 'Contracts',   min: 1,  max: 20,  step: 1,  tooltip: 'Number of butterfly contracts per trade' },
+    { key: 'profit_target_pct',label: 'Take Profit', unit: '% of debit', min: 50, max: 200, step: 10, tooltip: 'Close when profit = this % of debit paid to enter' },
+    { key: 'stop_loss_pct',    label: 'Stop Loss',   unit: '% of debit', min: 50, max: 100, step: 10, tooltip: 'Exit when loss = this % of debit paid' },
   ],
 }
 
 const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
-  credit_spread: { contracts: 2, spread_width: 5, short_strike_delta: 0.20, max_loss_per_trade: 500, take_profit_pct: 50, max_trades_per_day: 4 },
+  credit_spread: { contracts: 2, spread_width: 5, short_strike_delta: 0.20, take_profit_pct: 50, max_loss_per_trade: 500, max_trades_per_day: 4 },
   iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
   iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150 },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
 }
 
+// ── Confirmation modal ────────────────────────────────────────────────────────
+function ConfirmStartModal({ bot, params, paramDefs, onConfirm, onCancel, loading }: {
+  bot: any; params: Record<string, number>
+  paramDefs: typeof PARAM_DEFS[string]
+  onConfirm: () => void; onCancel: () => void; loading: boolean
+}) {
+  const [agreed, setAgreed] = useState(false)
+  const isPaper = bot?.configuration?.paper_trading !== false
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-[#0f1623] border border-[#1e2a3a] rounded-xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-[#1e2a3a]">
+          <h3 className="text-white font-semibold flex items-center gap-2">
+            <AlertTriangle size={16} className="text-yellow-400" /> Confirm Bot Start
+          </h3>
+          <button onClick={onCancel} className="text-gray-500 hover:text-white"><X size={16} /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Mode badge */}
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${isPaper ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+            {isPaper ? '🟡 SIMULATED — Paper Trading (no real money)' : '🔴 LIVE TRADING — Real capital at risk'}
+          </div>
+
+          {/* Parameters summary */}
+          <div>
+            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wider">You are starting with these parameters:</p>
+            <div className="bg-[#0a0e1a] rounded-lg p-3 grid grid-cols-2 gap-2">
+              {paramDefs.map(d => (
+                <div key={d.key} className="flex justify-between text-xs">
+                  <span className="text-gray-400">{d.label}{d.unit ? ` (${d.unit})` : ''}</span>
+                  <span className="text-white font-medium">{params[d.key] ?? '—'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Compliance checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={e => setAgreed(e.target.checked)}
+              className="mt-0.5 w-4 h-4 shrink-0 accent-blue-500"
+            />
+            <span className="text-xs text-gray-300 leading-relaxed">
+              I confirm these parameters are correct and I accept full responsibility for all trades placed by this bot.
+              {!isPaper && <strong className="text-red-400"> This will trade with real capital.</strong>}
+            </span>
+          </label>
+        </div>
+
+        <div className="flex gap-2 p-4 border-t border-[#1e2a3a]">
+          <Button variant="outline" className="flex-1 border-[#1e2a3a]" onClick={onCancel} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            className={`flex-1 ${isPaper ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} text-white`}
+            onClick={onConfirm}
+            disabled={!agreed || loading}
+          >
+            {loading ? <><Loader2 size={14} className="mr-1 animate-spin" /> Starting…</> : isPaper ? 'Start Simulation' : 'Start Live Trading'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function LiveBotPage() {
   const params = useParams()
   const botId = params?.botId as string
@@ -83,43 +150,34 @@ export default function LiveBotPage() {
   const [tradeLog, setTradeLog] = useState<TradeEntry[]>([])
   const [actionLoading, setActionLoading] = useState(false)
   const [tradeParams, setTradeParams] = useState<Record<string, number>>({})
-  const [showParams, setShowParams] = useState(true)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => {
     if (!botId) return
-    botsApi.get(botId)
-      .then(r => {
-        setBot(r.data)
-        const category = r.data.category || 'credit_spread'
-        const defaults = DEFAULT_PARAMS[category] || DEFAULT_PARAMS.credit_spread
-        // Merge any saved config into defaults
-        const saved = r.data.configuration || {}
-        const merged: Record<string, number> = { ...defaults }
-        Object.keys(defaults).forEach(k => { if (saved[k] !== undefined) merged[k] = saved[k] })
-        setTradeParams(merged)
-      })
-      .catch(() => {})
+    botsApi.get(botId).then(r => {
+      setBot(r.data)
+      const category = r.data.category || 'credit_spread'
+      const defaults = DEFAULT_PARAMS[category] || DEFAULT_PARAMS.credit_spread
+      const saved = r.data.configuration || {}
+      const merged: Record<string, number> = { ...defaults }
+      Object.keys(defaults).forEach(k => { if (saved[k] !== undefined) merged[k] = +saved[k] })
+      setTradeParams(merged)
+    }).catch(() => {})
   }, [botId])
 
   const fetchStatus = useCallback(async () => {
     if (!botId) return
-    try {
-      const res = await botRunnerApi.status(botId)
-      setRunning(res.data.running)
-      setPid(res.data.pid)
-    } catch {}
+    try { const r = await botRunnerApi.status(botId); setRunning(r.data.running); setPid(r.data.pid) } catch {}
   }, [botId])
 
   const fetchPositions = useCallback(async () => {
     if (!botId) return
-    try { const res = await botRunnerApi.positions(botId); setPositions(Array.isArray(res.data) ? res.data : []) }
-    catch { setPositions([]) }
+    try { const r = await botRunnerApi.positions(botId); setPositions(Array.isArray(r.data) ? r.data : []) } catch { setPositions([]) }
   }, [botId])
 
   const fetchTradeLog = useCallback(async () => {
     if (!botId) return
-    try { const res = await botRunnerApi.tradeLog(botId); setTradeLog(Array.isArray(res.data) ? res.data : []) }
-    catch { setTradeLog([]) }
+    try { const r = await botRunnerApi.tradeLog(botId); setTradeLog(Array.isArray(r.data) ? r.data : []) } catch { setTradeLog([]) }
   }, [botId])
 
   useEffect(() => {
@@ -131,10 +189,10 @@ export default function LiveBotPage() {
 
   const handleStart = async () => {
     setActionLoading(true)
+    setShowConfirm(false)
     try {
       const res = await botRunnerApi.startWithParams(botId, tradeParams)
       setRunning(true); setPid(res.data.pid)
-      setShowParams(false)
       toast.success(`Bot started (PID ${res.data.pid})`)
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Failed to start bot')
@@ -146,7 +204,6 @@ export default function LiveBotPage() {
     try {
       await botRunnerApi.stop(botId)
       setRunning(false); setPid(null)
-      setShowParams(true)
       toast.success('Bot stopped')
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Failed to stop bot')
@@ -155,91 +212,91 @@ export default function LiveBotPage() {
 
   const category = bot?.category || 'credit_spread'
   const paramDefs = PARAM_DEFS[category] || PARAM_DEFS.credit_spread
+  const isPaper = bot?.configuration?.paper_trading !== false
 
   return (
     <div className="flex flex-col h-full">
       <Header title="Live Bot Monitor" />
-      <div className="flex-1 p-6 space-y-4">
+      {showConfirm && bot && (
+        <ConfirmStartModal
+          bot={bot} params={tradeParams} paramDefs={paramDefs}
+          onConfirm={handleStart} onCancel={() => setShowConfirm(false)} loading={actionLoading}
+        />
+      )}
 
-        {/* Bot Info Header */}
+      <div className="flex-1 p-4 space-y-3 overflow-auto">
+
+        {/* ── Compact bot info header ── */}
         {bot && (
-          <Card className="bg-[#0f1623] border-[#1e2a3a]">
-            <CardContent className="pt-5 pb-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-white font-semibold text-lg">{bot.name}</h2>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${riskColors[bot.risk_level] || riskColors.medium}`}>
-                      {bot.risk_level} risk
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
-                      {categoryLabels[bot.category] || bot.category}
-                    </span>
-                    {bot.configuration?.symbol && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-mono">
-                        {bot.configuration.symbol}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-gray-400 text-sm max-w-2xl">{bot.description}</p>
-                  {bot.schedule_cron && (
-                    <p className="text-xs text-gray-600 font-mono">Schedule: {bot.schedule_cron}</p>
-                  )}
-                </div>
+          <div className="bg-[#0f1623] border border-[#1e2a3a] rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <span className="text-white font-semibold text-base truncate">{bot.name}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${riskColors[bot.risk_level] || riskColors.medium}`}>
+                {bot.risk_level} risk
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 shrink-0">
+                {categoryLabels[bot.category] || bot.category}
+              </span>
+              {bot.configuration?.symbol && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-mono shrink-0">
+                  {bot.configuration.symbol}
+                </span>
+              )}
+              <span title={bot.description} className="text-gray-600 hover:text-gray-400 cursor-help shrink-0">
+                <Info size={13} />
+              </span>
+            </div>
 
-                {/* Status + controls */}
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${
-                    running ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
-                  }`}>
-                    <span className={`w-2 h-2 rounded-full ${running ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
-                    {running ? 'Running' : 'Stopped'}
-                  </span>
-                  {pid && <span className="text-xs text-gray-500">PID {pid}</span>}
-                  {running ? (
-                    <Button variant="outline" className="border-red-500/40 text-red-400 hover:bg-red-500/10"
-                      onClick={handleStop} disabled={actionLoading}>
-                      {actionLoading ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Square size={14} className="mr-1" />}
-                      Stop Bot
-                    </Button>
-                  ) : (
-                    <Button className="bg-green-600 hover:bg-green-700 text-white"
-                      onClick={handleStart} disabled={actionLoading}>
-                      {actionLoading ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Play size={14} className="mr-1" />}
-                      Start Bot
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                running ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
+                {running ? `Running${pid ? ` · PID ${pid}` : ''}` : 'Stopped'}
+              </span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${isPaper ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-400'}`}>
+                {isPaper ? 'Paper' : '⚠ Live'}
+              </span>
+              {running ? (
+                <Button size="sm" variant="outline" className="border-red-500/40 text-red-400 hover:bg-red-500/10 h-7 text-xs"
+                  onClick={handleStop} disabled={actionLoading}>
+                  {actionLoading ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} className="mr-1" />}
+                  Stop
+                </Button>
+              ) : (
+                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs"
+                  onClick={() => setShowConfirm(true)} disabled={actionLoading}>
+                  {actionLoading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} className="mr-1" />}
+                  Start Bot
+                </Button>
+              )}
+            </div>
+          </div>
         )}
 
-        {/* Trade Parameters */}
-        {(showParams || !running) && (
-          <Card className="bg-[#0f1623] border-[#1e2a3a]">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base text-white">Trade Parameters</CardTitle>
-                {running && (
-                  <button onClick={() => setShowParams(v => !v)} className="text-xs text-gray-500 hover:text-gray-300">
-                    {showParams ? 'Hide' : 'Show'}
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-gray-500">These values are passed to the bot on start. Stop and restart to apply changes.</p>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {/* ── Two-column layout: params | positions+log ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-3">
+
+          {/* Left: Trade Parameters */}
+          <div className="space-y-3">
+            <Card className="bg-[#0f1623] border-[#1e2a3a]">
+              <CardHeader className="pb-1 pt-3 px-4">
+                <CardTitle className="text-sm text-white">Your Trade Parameters</CardTitle>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {running ? 'Locked while running — stop bot to edit.' : 'Set before starting. You will confirm before the bot executes.'}
+                </p>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 pt-2 space-y-2">
                 {paramDefs.map(def => (
-                  <div key={def.key} className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Label className="text-xs">{def.label}</Label>
-                      <span title={def.tooltip} className="text-gray-600 hover:text-gray-400 cursor-help">
-                        <Info size={11} />
+                  <div key={def.key} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="text-xs text-gray-300 truncate">{def.label}</span>
+                      {def.unit && <span className="text-xs text-gray-600 shrink-0">({def.unit})</span>}
+                      <span title={def.tooltip} className="text-gray-600 hover:text-gray-400 cursor-help shrink-0 ml-0.5">
+                        <Info size={10} />
                       </span>
                     </div>
-                    <Input
+                    <input
                       type="number"
                       min={def.min}
                       max={def.max}
@@ -247,107 +304,137 @@ export default function LiveBotPage() {
                       value={tradeParams[def.key] ?? ''}
                       onChange={e => setTradeParams(p => ({ ...p, [def.key]: parseFloat(e.target.value) || 0 }))}
                       disabled={running}
-                      className="bg-[#0a0e1a] border-[#1e2a3a] text-sm disabled:opacity-50"
+                      className="w-20 shrink-0 bg-[#0a0e1a] border border-[#1e2a3a] rounded-md px-2 py-1 text-xs text-white text-right disabled:opacity-40 focus:outline-none focus:border-blue-500/50"
                     />
-                    <p className="text-xs text-gray-600">{def.tooltip}</p>
                   </div>
                 ))}
-              </div>
-              {running && (
-                <p className="text-xs text-yellow-400/70 mt-4 bg-yellow-500/10 rounded px-3 py-2">
-                  Parameters are locked while the bot is running. Stop the bot to edit.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
-        {/* Open Positions */}
-        <Card className="bg-[#0f1623] border-[#1e2a3a]">
-          <CardHeader><CardTitle className="text-base text-white">Open Positions</CardTitle></CardHeader>
-          <CardContent>
-            {positions.length === 0 ? (
-              <p className="text-gray-500 text-sm text-center py-6">No open positions</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-gray-500 border-b border-[#1e2a3a]">
-                      <th className="text-left py-2 pr-4">Symbol</th>
-                      <th className="text-right py-2 pr-4">Qty</th>
-                      <th className="text-right py-2 pr-4">Avg Cost</th>
-                      <th className="text-right py-2 pr-4">Mkt Value</th>
-                      <th className="text-right py-2">Unreal PnL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.map((pos, i) => {
-                      const unrealPnl = Number(pos.unrealPnL ?? pos.unreal_pnl ?? 0)
-                      return (
-                        <tr key={i} className="border-b border-[#1e2a3a]/50 text-gray-200">
-                          <td className="py-2 pr-4 font-mono">{String(pos.symbol ?? '—')}</td>
-                          <td className="py-2 pr-4 text-right">{String(pos.qty ?? '—')}</td>
-                          <td className="py-2 pr-4 text-right">{String(pos.avgCost ?? pos.avg_cost ?? '—')}</td>
-                          <td className="py-2 pr-4 text-right">{String(pos.mktValue ?? pos.mkt_value ?? '—')}</td>
-                          <td className={`py-2 text-right ${unrealPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {String(pos.unrealPnL ?? pos.unreal_pnl ?? '—')}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                {!running && (
+                  <div className="pt-2 border-t border-[#1e2a3a]">
+                    <p className="text-xs text-gray-600">
+                      Clicking <strong className="text-gray-400">Start Bot</strong> shows a confirmation with these values before anything runs.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Bot info expandable */}
+            {bot?.description && (
+              <Card className="bg-[#0f1623] border-[#1e2a3a]">
+                <CardContent className="px-4 py-3">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-1.5">What this bot does</p>
+                  <p className="text-xs text-gray-400 leading-relaxed">{bot.description}</p>
+                  {bot.schedule_cron && (
+                    <p className="text-xs text-gray-600 font-mono mt-2">Schedule: {bot.schedule_cron}</p>
+                  )}
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Trade Log */}
-        <Card className="bg-[#0f1623] border-[#1e2a3a]">
-          <CardHeader><CardTitle className="text-base text-white">Trade Log</CardTitle></CardHeader>
-          <CardContent>
-            {tradeLog.length === 0 ? (
-              <p className="text-gray-500 text-sm text-center py-6">No trades today</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-gray-500 border-b border-[#1e2a3a]">
-                      <th className="text-left py-2 pr-4">Time</th>
-                      <th className="text-left py-2 pr-4">Action</th>
-                      <th className="text-left py-2 pr-4">Symbol</th>
-                      <th className="text-right py-2 pr-4">Qty</th>
-                      <th className="text-right py-2 pr-4">Price</th>
-                      <th className="text-right py-2">PnL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tradeLog.map((trade, i) => {
-                      const pnl = Number(trade.pnl ?? 0)
-                      return (
-                        <tr key={i} className="border-b border-[#1e2a3a]/50 text-gray-200">
-                          <td className="py-2 pr-4 text-gray-400 text-xs">{String(trade.time ?? trade.timestamp ?? '—')}</td>
-                          <td className="py-2 pr-4">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                              String(trade.action).toUpperCase() === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                            }`}>{String(trade.action ?? '—')}</span>
-                          </td>
-                          <td className="py-2 pr-4 font-mono">{String(trade.symbol ?? '—')}</td>
-                          <td className="py-2 pr-4 text-right">{String(trade.qty ?? '—')}</td>
-                          <td className="py-2 pr-4 text-right">{String(trade.price ?? '—')}</td>
-                          <td className={`py-2 text-right ${trade.pnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                            {trade.pnl !== undefined ? String(trade.pnl) : '—'}
-                          </td>
+          {/* Right: Positions + Trade Log */}
+          <div className="space-y-3">
+            {/* Open Positions */}
+            <Card className="bg-[#0f1623] border-[#1e2a3a]">
+              <CardHeader className="pb-1 pt-3 px-4">
+                <CardTitle className="text-sm text-white flex items-center gap-2">
+                  Open Positions
+                  {positions.length > 0 && (
+                    <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">{positions.length}</span>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-0 pb-2">
+                {positions.length === 0 ? (
+                  <p className="text-gray-600 text-xs text-center py-5">No open positions</p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 border-b border-[#1e2a3a]">
+                        <th className="text-left px-4 py-1.5">Symbol</th>
+                        <th className="text-right px-4 py-1.5">Qty</th>
+                        <th className="text-right px-4 py-1.5">Avg Cost</th>
+                        <th className="text-right px-4 py-1.5">Mkt Value</th>
+                        <th className="text-right px-4 py-1.5">Unreal PnL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {positions.map((pos, i) => {
+                        const pnl = Number(pos.unrealPnL ?? pos.unreal_pnl ?? 0)
+                        return (
+                          <tr key={i} className="border-b border-[#1e2a3a]/40 text-gray-200">
+                            <td className="px-4 py-1.5 font-mono">{String(pos.symbol ?? '—')}</td>
+                            <td className="px-4 py-1.5 text-right">{String(pos.qty ?? '—')}</td>
+                            <td className="px-4 py-1.5 text-right">{String(pos.avgCost ?? pos.avg_cost ?? '—')}</td>
+                            <td className="px-4 py-1.5 text-right">{String(pos.mktValue ?? pos.mkt_value ?? '—')}</td>
+                            <td className={`px-4 py-1.5 text-right font-medium ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {String(pos.unrealPnL ?? pos.unreal_pnl ?? '—')}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Trade Log */}
+            <Card className="bg-[#0f1623] border-[#1e2a3a]">
+              <CardHeader className="pb-1 pt-3 px-4">
+                <CardTitle className="text-sm text-white flex items-center gap-2">
+                  Trade Log
+                  {tradeLog.length > 0 && (
+                    <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{tradeLog.length}</span>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-0 pb-2">
+                {tradeLog.length === 0 ? (
+                  <p className="text-gray-600 text-xs text-center py-5">No trades yet today</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-500 border-b border-[#1e2a3a]">
+                          <th className="text-left px-4 py-1.5">Time</th>
+                          <th className="text-left px-4 py-1.5">Action</th>
+                          <th className="text-left px-4 py-1.5">Symbol</th>
+                          <th className="text-right px-4 py-1.5">Qty</th>
+                          <th className="text-right px-4 py-1.5">Price</th>
+                          <th className="text-right px-4 py-1.5">PnL</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
+                      </thead>
+                      <tbody>
+                        {tradeLog.map((t, i) => {
+                          const pnl = Number(t.pnl ?? 0)
+                          const isBuy = String(t.action).toUpperCase().includes('BUY')
+                          return (
+                            <tr key={i} className="border-b border-[#1e2a3a]/40 text-gray-200">
+                              <td className="px-4 py-1.5 text-gray-400">{String(t.time ?? t.timestamp ?? '—')}</td>
+                              <td className="px-4 py-1.5">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                  {String(t.action ?? '—')}
+                                </span>
+                              </td>
+                              <td className="px-4 py-1.5 font-mono">{String(t.symbol ?? '—')}</td>
+                              <td className="px-4 py-1.5 text-right">{String(t.qty ?? '—')}</td>
+                              <td className="px-4 py-1.5 text-right">{String(t.price ?? '—')}</td>
+                              <td className={`px-4 py-1.5 text-right font-medium ${t.pnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
+                                {t.pnl !== undefined ? String(t.pnl) : '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   )
