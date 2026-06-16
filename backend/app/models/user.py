@@ -40,6 +40,11 @@ class User(Base):
     last_login = Column(DateTime(timezone=True), nullable=True)
     password_reset_token = Column(String(255), nullable=True)
     password_reset_expires = Column(DateTime(timezone=True), nullable=True)
+    telegram_chat_id = Column(String(100), nullable=True)
+    telegram_notify_live = Column(Boolean, default=True)
+    telegram_notify_sim = Column(Boolean, default=True)
+    telegram_link_code = Column(String(20), nullable=True)
+    telegram_link_code_expires = Column(DateTime(timezone=True), nullable=True)
 
     subscriptions = relationship("Subscription", back_populates="user")
     bots = relationship("Bot", back_populates="user")

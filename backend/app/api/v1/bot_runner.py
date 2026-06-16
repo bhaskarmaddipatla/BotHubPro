@@ -194,6 +194,8 @@ async def start_bot(
         "IBKR_PAPER": str(config["paper_trading"]).lower(),
         "BOT_ID": str(bot_id),
         "USER_ID": str(current_user.id),
+        "NOTIFY_URL": f"{os.environ.get('BACKEND_URL', 'http://localhost:8000')}/api/v1/bot-runner/{bot_id}/trade-event",
+        "NOTIFY_IS_SIM": "true" if config.get("paper_trading", True) else "false",
     })
     # Pass STRATEGY and any other string config keys as env vars so shared
     # engine runners (e.g. bots/engine/runner.py) can select the right strategy
@@ -358,3 +360,46 @@ async def test_connection(
             "latency_ms": None,
             "message": str(e),
         }
+
+
+class TradeEvent(BaseModel):
+    action: str = ""
+    symbol: str = "SPX"
+    strike: str = ""
+    expiry: str = ""
+    credit: str = ""
+    debit: str = ""
+    contracts: str = ""
+    pnl: str = ""
+    price: str = ""
+    spx_price: str = ""
+    vix: str = ""
+    note: str = ""
+    is_simulation: bool = True
+
+
+@router.post("/{bot_id}/trade-event")
+async def trade_event(
+    bot_id: UUID,
+    event: TradeEvent,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Called by the bot subprocess when a trade is placed. Sends Telegram notification."""
+    from app.services.telegram import send_telegram, format_trade_alert
+
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    bot_name = bot.name if bot else str(bot_id)
+
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user or not user.telegram_chat_id:
+        return {"notified": False, "reason": "no_telegram_linked"}
+
+    if event.is_simulation and not user.telegram_notify_sim:
+        return {"notified": False, "reason": "sim_notifications_disabled"}
+    if not event.is_simulation and not user.telegram_notify_live:
+        return {"notified": False, "reason": "live_notifications_disabled"}
+
+    msg = format_trade_alert(bot_name, event.dict(), event.is_simulation)
+    ok = send_telegram(user.telegram_chat_id, msg)
+    return {"notified": ok}

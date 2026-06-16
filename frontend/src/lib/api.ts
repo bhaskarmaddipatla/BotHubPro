@@ -128,3 +128,12 @@ export const botRunnerApi = {
   tradeLog: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/trade-log`),
   testConnection: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/test-connection`),
 }
+
+export const telegramApi = {
+  status: () => api.get('/api/v1/telegram/status'),
+  connect: () => api.post('/api/v1/telegram/connect'),
+  disconnect: () => api.delete('/api/v1/telegram/disconnect'),
+  test: () => api.post('/api/v1/telegram/test'),
+  updatePrefs: (data: { notify_live?: boolean; notify_sim?: boolean }) =>
+    api.patch('/api/v1/telegram/preferences', data),
+}

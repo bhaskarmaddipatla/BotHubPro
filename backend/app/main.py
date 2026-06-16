@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.models import user, subscription, bot, execution, notification, api_key, audit_log, billing  # noqa: F401
 from app.api.v1 import auth, users, bots, executions, subscriptions, analytics, admin, notifications, marketplace, backtests
 from app.api.v1 import broker_credentials, bot_runner
+from app.api.v1 import telegram as telegram_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Mark
 app.include_router(backtests.router, prefix="/api/v1/backtests", tags=["Backtests"])
 app.include_router(broker_credentials.router, prefix="/api/v1/broker", tags=["Broker"])
 app.include_router(bot_runner.router, prefix="/api/v1/bot-runner", tags=["bot-runner"])
+app.include_router(telegram_router.router, prefix="/api/v1/telegram", tags=["Telegram"])
 
 
 @app.get("/health")

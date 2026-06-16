@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     MFA_ISSUER: str = "BotHubPro"
     ENVIRONMENT: str = "development"
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001"]
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_BOT_USERNAME: str = "YourBotHubProBot"
+    BACKEND_URL: str = "http://localhost:8000"
 
     class Config:
         env_file = ".env"

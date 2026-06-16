@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { userApi, authApi, api } from '@/lib/api'
+import { userApi, authApi, api, telegramApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { User, Lock, Shield, Plug, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { User, Lock, Shield, Plug, CheckCircle, XCircle, Loader2, Bell, Send, Unlink } from 'lucide-react'
 
 type BrokerTab = 'ibkr' | 'moomoo'
 
@@ -19,6 +19,12 @@ export default function SettingsPage() {
   const [newPw, setNewPw] = useState('')
   const [mfaSetup, setMfaSetup] = useState<any>(null)
   const [mfaCode, setMfaCode] = useState('')
+
+  // Telegram
+  const [telegramStatus, setTelegramStatus] = useState<any>(null)
+  const [telegramCode, setTelegramCode] = useState<any>(null)
+  const [telegramLoading, setTelegramLoading] = useState(false)
+  const [connecting, setConnecting] = useState(false)
 
   // Broker tab
   const [brokerTab, setBrokerTab] = useState<BrokerTab>('ibkr')
@@ -37,6 +43,7 @@ export default function SettingsPage() {
     userApi.getMe().then(r => { setUser(r.data); setFirstName(r.data.first_name); setLastName(r.data.last_name) }).catch(() => {})
     api.get('/api/v1/broker/ibkr').then(r => { if (r.data) setIbkr(prev => ({ ...prev, ...r.data })) }).catch(() => {})
     api.get('/api/v1/broker/moomoo').then(r => { if (r.data) setMoomoo(prev => ({ ...prev, ...r.data, api_secret: '' })) }).catch(() => {})
+    telegramApi.status().then(r => setTelegramStatus(r.data)).catch(() => {})
   }, [])
 
   const handleUpdateProfile = async () => {
@@ -282,6 +289,129 @@ export default function SettingsPage() {
                 <Button onClick={handleSaveMoomoo} disabled={savingMoomoo}>
                   {savingMoomoo ? 'Saving...' : 'Save Moomoo Credentials'}
                 </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Telegram Notifications */}
+        <Card className="bg-[#0f1623] border-[#1e2a3a]">
+          <CardHeader>
+            <CardTitle className="text-base text-white flex items-center gap-2"><Bell size={16} /> Telegram Notifications</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {telegramStatus?.connected ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">Connected</span>
+                  <span className="text-gray-400 text-sm">Chat ID: {telegramStatus.chat_id}</span>
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={telegramStatus.notify_live ?? true}
+                      onChange={async e => {
+                        try {
+                          const r = await telegramApi.updatePrefs({ notify_live: e.target.checked })
+                          setTelegramStatus((s: any) => ({ ...s, notify_live: r.data.notify_live }))
+                          toast.success('Preference saved')
+                        } catch { toast.error('Failed to update preference') }
+                      }}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-sm text-gray-300">Notify on Live Trades</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={telegramStatus.notify_sim ?? true}
+                      onChange={async e => {
+                        try {
+                          const r = await telegramApi.updatePrefs({ notify_sim: e.target.checked })
+                          setTelegramStatus((s: any) => ({ ...s, notify_sim: r.data.notify_sim }))
+                          toast.success('Preference saved')
+                        } catch { toast.error('Failed to update preference') }
+                      }}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-sm text-gray-300">Notify on Simulated Trades</span>
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    className="border-[#1e2a3a]"
+                    disabled={telegramLoading}
+                    onClick={async () => {
+                      setTelegramLoading(true)
+                      try {
+                        await telegramApi.test()
+                        toast.success('Test message sent!')
+                      } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed to send test') }
+                      finally { setTelegramLoading(false) }
+                    }}
+                  >
+                    {telegramLoading ? <><Loader2 size={14} className="mr-1 animate-spin" /> Sending...</> : <><Send size={14} className="mr-1" /> Send Test</>}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                    onClick={async () => {
+                      try {
+                        await telegramApi.disconnect()
+                        setTelegramStatus((s: any) => ({ ...s, connected: false, chat_id: null }))
+                        setTelegramCode(null)
+                        toast.success('Telegram disconnected')
+                      } catch { toast.error('Failed to disconnect') }
+                    }}
+                  >
+                    <Unlink size={14} className="mr-1" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-gray-400 text-sm">Connect your Telegram account to receive trade alerts from your bots.</p>
+                {telegramCode ? (
+                  <div className="space-y-3">
+                    <div className="bg-[#0a0e1a] border border-[#1e2a3a] rounded-lg p-4 space-y-2">
+                      <p className="text-sm text-gray-300"><span className="font-semibold text-white">Step 1:</span> Open Telegram and search for <span className="text-blue-400">@{telegramCode.bot_username}</span></p>
+                      <p className="text-sm text-gray-300"><span className="font-semibold text-white">Step 2:</span> Send this message to the bot:</p>
+                      <div className="bg-black/40 rounded px-3 py-2 font-mono text-green-400 text-sm select-all">/link {telegramCode.code}</div>
+                      <p className="text-sm text-gray-300"><span className="font-semibold text-white">Step 3:</span> The bot will confirm your account is linked</p>
+                      <p className="text-xs text-yellow-400">Code expires in 10 minutes</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="border-[#1e2a3a]"
+                      onClick={async () => {
+                        try {
+                          const r = await telegramApi.status()
+                          setTelegramStatus(r.data)
+                          if (r.data.connected) { setTelegramCode(null); toast.success('Telegram connected!') }
+                          else toast.info('Not linked yet — send the code to the bot first')
+                        } catch { toast.error('Failed to check status') }
+                      }}
+                    >
+                      Refresh Status
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    disabled={connecting}
+                    onClick={async () => {
+                      setConnecting(true)
+                      try {
+                        const r = await telegramApi.connect()
+                        setTelegramCode(r.data)
+                      } catch { toast.error('Failed to generate link code') }
+                      finally { setConnecting(false) }
+                    }}
+                  >
+                    {connecting ? <><Loader2 size={14} className="mr-1 animate-spin" /> Generating...</> : 'Connect Telegram'}
+                  </Button>
+                )}
               </div>
             )}
           </CardContent>
