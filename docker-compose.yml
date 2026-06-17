@@ -49,6 +49,9 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-YourBotHubProBot}
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:8000}
     depends_on:
       db:
         condition: service_healthy
@@ -57,6 +60,7 @@ services:
     volumes:
       - ./backend:/app
       - bot_files:/app/bot_files
+      - trade_data:/data
     command: >
       sh -c "alembic upgrade head && python scripts/seed_admin.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
@@ -69,6 +73,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-BotHubProDevKey2024SecretMin32Ch}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:8000}
     depends_on:
       db:
         condition: service_healthy
@@ -76,6 +82,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - trade_data:/data
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
 
   flower:
@@ -106,3 +113,4 @@ volumes:
   postgres_data:
   redis_data:
   bot_files:
+  trade_data:
