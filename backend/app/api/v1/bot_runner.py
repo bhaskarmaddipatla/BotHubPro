@@ -115,14 +115,15 @@ def _sync_bot_from_git(bot_files_dir: Path, git_repo: str, git_branch: str, git_
             return False, f"Path '{git_path}' not found in repo after clone"
 
         bot_files_dir.mkdir(parents=True, exist_ok=True)
-        for item in src.iterdir():
-            dest = bot_files_dir / item.name
-            if item.is_dir():
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.copytree(item, dest)
-            else:
-                shutil.copy2(item, dest)
+
+        # Copy src as a named subdirectory (e.g. bots/) so that runner scripts
+        # can do `from bots.broker.factory import ...` with cwd=bot_files_dir.
+        # git_path="bots" → bot_files_dir/bots/; git_path="bots/engine" → bot_files_dir/engine/
+        dest_name = src.name  # last component of git_path
+        dest = bot_files_dir / dest_name
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
 
         return True, f"Synced from {git_repo} branch={git_branch} path={git_path}"
     except Exception as e:
