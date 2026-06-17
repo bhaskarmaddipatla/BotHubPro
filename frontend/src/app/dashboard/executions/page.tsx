@@ -26,8 +26,8 @@ const pendingSteps = [
 ]
 
 function stepIndexForStatus(status: string) {
-  if (status === 'pending')   return 0   // stuck at queue
-  if (status === 'running')   return 3   // spawned, monitoring
+  if (status === 'pending')   return 0   // queued
+  if (status === 'running')   return 4   // spawned, now monitoring
   if (status === 'completed') return 5   // all done
   return -1
 }

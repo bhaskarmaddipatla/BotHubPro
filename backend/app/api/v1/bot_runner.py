@@ -166,7 +166,7 @@ async def start_bot(
         "ibkr_client_id": creds.get("client_id", 1),
         "ibkr_account": creds.get("account", ""),
         "paper_trading": creds.get("paper_trading", True),
-        "ibkr_allow_trading": False,
+        "ibkr_allow_trading": not creds.get("paper_trading", True),
         "data_dir": str(data_path),
         # Merge bot base config then user-supplied trade params on top
         **(bot.configuration or {}),
@@ -372,6 +372,90 @@ async def bot_trade_log(
         return json.loads(trade_log_path.read_text())
     except Exception:
         return []
+
+
+@router.get("/{bot_id}/diagnose")
+async def diagnose_bot(
+    bot_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Returns a full diagnostic report without starting the bot."""
+    report: dict = {}
+
+    # 1. Bot record
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    if not bot:
+        return {"error": "Bot not found"}
+    report["bot"] = {"name": bot.name, "category": str(bot.category), "status": str(bot.status)}
+    cfg = bot.configuration if isinstance(bot.configuration, dict) else {}
+    report["bot_config"] = cfg
+
+    # 2. IBKR credentials
+    creds = _get_ibkr_creds(current_user.id, db) or {}
+    report["ibkr_creds"] = {
+        "host": creds.get("host", "NOT SET"),
+        "port": creds.get("port", "NOT SET"),
+        "account": creds.get("account", "NOT SET"),
+        "paper_trading": creds.get("paper_trading", True),
+        "has_creds": bool(creds),
+    }
+
+    # 3. GITHUB_TOKEN
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    report["github_token"] = "SET" if token else "MISSING — git clone will fail"
+
+    # 4. Git / bot files
+    bot_files_dir = Path(f"/app/bot_files/{current_user.id}/{bot_id}")
+    entry_file = cfg.get("entry_file", "runner.py")
+    runner_path = bot_files_dir / entry_file
+    report["runner_path"] = str(runner_path)
+    report["runner_exists"] = runner_path.exists()
+    if bot_files_dir.exists():
+        report["bot_files"] = [f.name for f in bot_files_dir.iterdir()]
+    else:
+        report["bot_files"] = []
+
+    # 5. PID / process alive
+    data_path = _data_dir(current_user.id, bot_id)
+    pid = _read_pid(current_user.id, bot_id)
+    report["pid"] = pid
+    report["process_alive"] = _is_running(pid) if pid else False
+
+    # 6. Last 30 lines of bot.log
+    log_path = data_path / "bot.log"
+    if log_path.exists():
+        lines = log_path.read_text().splitlines()
+        report["bot_log_last_30"] = lines[-30:]
+        report["bot_log_total_lines"] = len(lines)
+    else:
+        report["bot_log_last_30"] = []
+        report["bot_log_note"] = "No log file — bot has not been started since log redirection was added"
+
+    # 7. TWS reachability
+    import socket
+    host = creds.get("host", "127.0.0.1")
+    port = int(creds.get("port", 7497))
+    try:
+        s = socket.create_connection((host, port), timeout=3)
+        s.close()
+        report["tws_reachable"] = True
+        report["tws_address"] = f"{host}:{port}"
+    except Exception as e:
+        report["tws_reachable"] = False
+        report["tws_address"] = f"{host}:{port}"
+        report["tws_error"] = str(e)
+
+    # 8. Python packages
+    import importlib
+    for pkg in ["ib_insync", "ibapi", "pandas", "numpy", "requests"]:
+        try:
+            importlib.import_module(pkg)
+            report.setdefault("packages", {})[pkg] = "OK"
+        except ImportError:
+            report.setdefault("packages", {})[pkg] = "MISSING"
+
+    return report
 
 
 @router.post("/{bot_id}/sync")

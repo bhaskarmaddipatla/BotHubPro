@@ -155,6 +155,22 @@ export default function LiveBotPage() {
   const [botDefaults, setBotDefaults] = useState<Record<string, number>>({})
   const [showConfirm, setShowConfirm] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
+  const [diagReport, setDiagReport] = useState<any>(null)
+  const [diagLoading, setDiagLoading] = useState(false)
+
+  const runDiagnose = async () => {
+    setDiagLoading(true)
+    setDiagReport(null)
+    try {
+      const { api } = await import('@/lib/api')
+      const r = await api.get(`/api/v1/bot-runner/${botId}/diagnose`)
+      setDiagReport(r.data)
+    } catch (e: any) {
+      setDiagReport({ error: e?.response?.data?.detail || String(e) })
+    } finally {
+      setDiagLoading(false)
+    }
+  }
 
   // Persist params to localStorage so they survive navigation
   const storageKey = botId ? `bot_params_${botId}` : null
@@ -309,6 +325,63 @@ export default function LiveBotPage() {
                   {actionLoading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} className="mr-1" />}
                   Start Bot
                 </Button>
+              )}
+              <Button size="sm" variant="outline" className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 h-7 text-xs"
+                onClick={runDiagnose} disabled={diagLoading}>
+                {diagLoading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                Diagnose
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Diagnostic report ── */}
+        {diagReport && (
+          <div className="bg-[#060a12] border border-blue-500/20 rounded-xl p-4 mb-1 text-xs font-mono">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-blue-400 font-semibold text-sm">Diagnostic Report</span>
+              <button onClick={() => setDiagReport(null)} className="text-gray-500 hover:text-white">✕</button>
+            </div>
+            <div className="space-y-1.5 max-h-80 overflow-y-auto">
+              {/* TWS connection */}
+              <div className={`flex gap-2 ${diagReport.tws_reachable ? 'text-green-400' : 'text-red-400'}`}>
+                <span>{diagReport.tws_reachable ? '✓' : '✗'}</span>
+                <span>TWS {diagReport.tws_address}: {diagReport.tws_reachable ? 'reachable' : `UNREACHABLE — ${diagReport.tws_error}`}</span>
+              </div>
+              {/* GitHub token */}
+              <div className={`flex gap-2 ${diagReport.github_token === 'SET' ? 'text-green-400' : 'text-red-400'}`}>
+                <span>{diagReport.github_token === 'SET' ? '✓' : '✗'}</span>
+                <span>GITHUB_TOKEN: {diagReport.github_token}</span>
+              </div>
+              {/* Runner file */}
+              <div className={`flex gap-2 ${diagReport.runner_exists ? 'text-green-400' : 'text-yellow-400'}`}>
+                <span>{diagReport.runner_exists ? '✓' : '⚠'}</span>
+                <span>runner.py: {diagReport.runner_exists ? `found at ${diagReport.runner_path}` : `NOT FOUND at ${diagReport.runner_path}`}</span>
+              </div>
+              {/* Process alive */}
+              <div className={`flex gap-2 ${diagReport.process_alive ? 'text-green-400' : 'text-red-400'}`}>
+                <span>{diagReport.process_alive ? '✓' : '✗'}</span>
+                <span>Process PID {diagReport.pid}: {diagReport.process_alive ? 'alive' : 'DEAD (crashed or not started)'}</span>
+              </div>
+              {/* Packages */}
+              {diagReport.packages && Object.entries(diagReport.packages).map(([pkg, status]: any) => (
+                <div key={pkg} className={`flex gap-2 ${status === 'OK' ? 'text-gray-500' : 'text-red-400'}`}>
+                  <span>{status === 'OK' ? '✓' : '✗'}</span>
+                  <span>{pkg}: {status}</span>
+                </div>
+              ))}
+              {/* Bot log tail */}
+              {diagReport.bot_log_last_30?.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-[#1e2a3a]">
+                  <div className="text-gray-400 mb-1">Last log lines:</div>
+                  {diagReport.bot_log_last_30.map((line: string, i: number) => {
+                    const isErr = /error|exception|traceback|failed/i.test(line)
+                    return <div key={i} className={isErr ? 'text-red-400' : 'text-gray-400'}>{line || ' '}</div>
+                  })}
+                </div>
+              )}
+              {diagReport.bot_log_note && (
+                <div className="text-yellow-400 mt-2">{diagReport.bot_log_note}</div>
               )}
             </div>
           </div>
