@@ -156,10 +156,16 @@ export default function BacktestsPage() {
               <FlaskConical size={16} /> {loading ? 'Fetching data & running…' : 'Run Backtest'}
             </Button>
             {loading && (
-              <p className="text-xs text-gray-500">Downloading SPX + VIX history from Yahoo Finance. This takes ~10s…</p>
+              <p className="text-xs text-gray-500">Fetching SPX + VIX data and running simulation…</p>
             )}
           </CardContent>
         </Card>
+
+        {result?.is_synthetic && (
+          <div className="bg-yellow-900/30 border border-yellow-600/40 rounded-lg px-4 py-3 text-yellow-300 text-sm">
+            ⚠ <strong>Simulated market data</strong> — Yahoo Finance was unreachable. Results are based on a statistically calibrated synthetic SPX model (GBM, μ=10%, σ=16%) and are for illustrative purposes only.
+          </div>
+        )}
 
         {result && (
           <>

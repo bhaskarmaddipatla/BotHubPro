@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from uuid import UUID
 from app.core.database import get_db
 from app.api.deps import get_current_active_user
 from app.models.user import User
 from app.models.bot import Bot
 import math
+import random
 
 router = APIRouter()
 
@@ -203,6 +204,72 @@ def simulate_credit_spread(
     }
 
 
+# ── Synthetic SPX data generator (used when Yahoo Finance is unreachable) ─────
+
+def _generate_synthetic_spx(start_date: str, end_date: str) -> tuple:
+    """
+    Generates statistically realistic SPX + VIX daily OHLCV rows using a
+    geometric Brownian motion model calibrated to historical SPX parameters.
+    Returns (price_rows, is_synthetic=True).
+    """
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    # SPX historical parameters (annualised)
+    mu = 0.10       # ~10% annual drift
+    sigma = 0.16    # ~16% annual vol
+    dt = 1 / 252
+
+    # Seed from date so results are repeatable for same date range
+    rng = random.Random(int(start.strftime("%Y%m%d")))
+
+    # Starting price: roughly calibrate to year
+    year = start.year
+    base_prices = {2020: 3230, 2021: 3756, 2022: 4796, 2023: 3839, 2024: 4770, 2025: 5900}
+    S = float(base_prices.get(year, 4500))
+
+    # VIX parameters
+    vix_mean = 18.0
+    vix_vol = 5.0
+
+    price_rows = []
+    current = start
+    vix = vix_mean
+
+    while current <= end:
+        # Skip weekends
+        if current.weekday() >= 5:
+            current += timedelta(days=1)
+            continue
+
+        # GBM step
+        z = rng.gauss(0, 1)
+        S = S * math.exp((mu - 0.5 * sigma ** 2) * dt + sigma * math.sqrt(dt) * z)
+
+        # Daily range: ~68% of annual vol scaled to 1 day
+        daily_range_pct = abs(rng.gauss(0, sigma * math.sqrt(dt)))
+        open_price = S * (1 + rng.gauss(0, sigma * math.sqrt(dt) * 0.3))
+        high_price = open_price * (1 + daily_range_pct * rng.uniform(0.3, 1.0))
+        low_price = open_price * (1 - daily_range_pct * rng.uniform(0.3, 1.0))
+        close_price = S
+
+        # Mean-reverting VIX
+        vix += rng.gauss(0, vix_vol * math.sqrt(dt)) + (vix_mean - vix) * 0.05
+        vix = max(10.0, min(80.0, vix))
+
+        price_rows.append({
+            "date": current.strftime("%Y-%m-%d"),
+            "open": round(open_price, 2),
+            "high": round(max(open_price, high_price, close_price), 2),
+            "low": round(min(open_price, low_price, close_price), 2),
+            "close": round(close_price, 2),
+            "vix": round(vix, 2),
+        })
+        current += timedelta(days=1)
+
+    return price_rows, True
+
+
 # ── Request model ─────────────────────────────────────────────────────────────
 
 class BacktestRequest(BaseModel):
@@ -247,35 +314,39 @@ async def run_backtest(
     take_profit_pct = float(trade_params.get("take_profit_pct", 50))
     max_loss_per_trade = float(trade_params.get("max_loss_per_trade", 500))
 
+    is_synthetic = False
+    price_rows = []
+
     try:
         spx = yf.download("^GSPC", start=request.start_date, end=request.end_date, progress=False, auto_adjust=True)
         vix = yf.download("^VIX", start=request.start_date, end=request.end_date, progress=False, auto_adjust=True)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch market data: {e}")
 
-    if spx.empty:
-        raise HTTPException(status_code=400, detail="No SPX data returned for the given date range")
+        if not spx.empty:
+            # Flatten MultiIndex columns if present
+            if isinstance(spx.columns, pd.MultiIndex):
+                spx.columns = [c[0] for c in spx.columns]
+            if isinstance(vix.columns, pd.MultiIndex):
+                vix.columns = [c[0] for c in vix.columns]
 
-    # Flatten MultiIndex columns if present
-    if isinstance(spx.columns, pd.MultiIndex):
-        spx.columns = [c[0] for c in spx.columns]
-    if isinstance(vix.columns, pd.MultiIndex):
-        vix.columns = [c[0] for c in vix.columns]
+            vix_close = vix["Close"] if "Close" in vix.columns else None
 
-    vix_close = vix["Close"] if "Close" in vix.columns else None
+            for idx, row in spx.iterrows():
+                d = idx.strftime("%Y-%m-%d")
+                vix_val = float(vix_close.get(idx, 18.0)) if vix_close is not None else 18.0
+                price_rows.append({
+                    "date": d,
+                    "open": float(row["Open"]),
+                    "high": float(row["High"]),
+                    "low": float(row["Low"]),
+                    "close": float(row["Close"]),
+                    "vix": vix_val,
+                })
+    except Exception:
+        pass
 
-    price_rows = []
-    for idx, row in spx.iterrows():
-        d = idx.strftime("%Y-%m-%d")
-        vix_val = float(vix_close.get(idx, 18.0)) if vix_close is not None else 18.0
-        price_rows.append({
-            "date": d,
-            "open": float(row["Open"]),
-            "high": float(row["High"]),
-            "low": float(row["Low"]),
-            "close": float(row["Close"]),
-            "vix": vix_val,
-        })
+    if not price_rows:
+        # Yahoo Finance unavailable — fall back to synthetic GBM data
+        price_rows, is_synthetic = _generate_synthetic_spx(request.start_date, request.end_date)
 
     if not price_rows:
         raise HTTPException(status_code=400, detail="No trading days found in date range")
@@ -299,6 +370,7 @@ async def run_backtest(
         "start_date": request.start_date,
         "end_date": request.end_date,
         "initial_capital": request.initial_capital,
+        "is_synthetic": is_synthetic,
         "trade_params_used": {
             "contracts": contracts,
             "spread_width": spread_width,
