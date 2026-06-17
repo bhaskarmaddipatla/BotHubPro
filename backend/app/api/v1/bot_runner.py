@@ -448,7 +448,7 @@ async def diagnose_bot(
 
     # 8. Python packages
     import importlib
-    for pkg in ["ib_insync", "ibapi", "pandas", "numpy", "requests"]:
+    for pkg in ["ib_insync", "pandas", "numpy", "requests"]:
         try:
             importlib.import_module(pkg)
             report.setdefault("packages", {})[pkg] = "OK"
