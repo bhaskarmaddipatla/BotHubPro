@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { Header } from '@/components/layout/header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -139,6 +139,71 @@ function ConfirmStartModal({ bot, params, paramDefs, onConfirm, onCancel, loadin
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+
+function BotProcessLog({ lines, running, show, onToggle }: {
+  lines: string[]; running: boolean; show: boolean; onToggle: () => void
+}) {
+  const bottomRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (show && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+  }, [lines, show])
+
+  return (
+    <Card className="bg-[#0f1623] border-[#1e2a3a]">
+      <CardHeader className="pb-1 pt-3 px-4">
+        <CardTitle className="text-sm text-white flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5">
+              {running && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
+              Process Log
+            </span>
+            {lines.length > 0 && (
+              <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{lines.length} lines</span>
+            )}
+          </span>
+          <button onClick={onToggle} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+            {show ? 'Hide' : 'Show'}
+          </button>
+        </CardTitle>
+      </CardHeader>
+      {show && (
+        <CardContent className="px-0 pb-2">
+          <div className="bg-[#060a12] mx-3 rounded-lg p-3 h-56 overflow-y-auto font-mono text-xs space-y-0.5">
+            {lines.length === 0 ? (
+              <p className="text-gray-600 text-center py-4">
+                {running
+                  ? 'Bot is running — log output appears here within seconds…'
+                  : 'No log output. Start the bot to see live output.'}
+              </p>
+            ) : (
+              <>
+                {lines.map((line, i) => {
+                  const isError = /error|exception|traceback|critical|failed to/i.test(line)
+                  const isWarn  = /warn|warning|skip|no trade/i.test(line)
+                  const isOk    = /connected|placed|filled|profit|success|entry|exit|open|close/i.test(line)
+                  const isInfo  = /scanning|checking|vwap|gex|vix|delta|spread|price|bid|ask|signal/i.test(line)
+                  return (
+                    <div key={i} className={
+                      isError ? 'text-red-400' :
+                      isWarn  ? 'text-yellow-300' :
+                      isOk    ? 'text-green-400' :
+                      isInfo  ? 'text-blue-300' :
+                      'text-gray-400'
+                    }>
+                      {line || ' '}
+                    </div>
+                  )
+                })}
+                <div ref={bottomRef} />
+              </>
+            )}
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  )
+}
+
 export default function LiveBotPage() {
   const params = useParams()
   const botId = params?.botId as string
@@ -149,7 +214,7 @@ export default function LiveBotPage() {
   const [positions, setPositions] = useState<Position[]>([])
   const [tradeLog, setTradeLog] = useState<TradeEntry[]>([])
   const [botLog, setBotLog] = useState<string[]>([])
-  const [showLog, setShowLog] = useState(false)
+  const [showLog, setShowLog] = useState(true)  // default open
   const [actionLoading, setActionLoading] = useState(false)
   const [tradeParams, setTradeParams] = useState<Record<string, number>>({})
   const [botDefaults, setBotDefaults] = useState<Record<string, number>>({})
@@ -239,8 +304,10 @@ export default function LiveBotPage() {
   useEffect(() => {
     fetchStatus(); fetchPositions(); fetchTradeLog(); fetchBotLog()
     const s = setInterval(fetchStatus, 5000)
-    const d = setInterval(() => { fetchPositions(); fetchTradeLog(); fetchBotLog() }, 10000)
+    const d = setInterval(() => { fetchPositions(); fetchTradeLog() }, 10000)
+    const l = setInterval(fetchBotLog, 3000)  // log refreshes fast so nothing is missed
     return () => { clearInterval(s); clearInterval(d) }
+    return () => { clearInterval(s); clearInterval(d); clearInterval(l) }
   }, [fetchStatus, fetchPositions, fetchTradeLog, fetchBotLog])
 
   const handleStart = async () => {
@@ -566,52 +633,8 @@ export default function LiveBotPage() {
                 )}
               </CardContent>
             </Card>
-
-            {/* Process Log */}
-            <Card className="bg-[#0f1623] border-[#1e2a3a]">
-              <CardHeader className="pb-1 pt-3 px-4">
-                <CardTitle className="text-sm text-white flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    Process Log
-                    {botLog.length > 0 && (
-                      <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{botLog.length} lines</span>
-                    )}
-                  </span>
-                  <button
-                    onClick={() => setShowLog(v => !v)}
-                    className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-                    {showLog ? 'Hide' : 'Show'}
-                  </button>
-                </CardTitle>
-              </CardHeader>
-              {showLog && (
-                <CardContent className="px-0 pb-2">
-                  {botLog.length === 0 ? (
-                    <p className="text-gray-600 text-xs text-center py-5">
-                      No log output yet — bot may still be starting up
-                    </p>
-                  ) : (
-                    <div className="bg-[#060a12] mx-2 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs text-gray-300 space-y-0.5">
-                      {botLog.map((line, i) => {
-                        const isError = /error|exception|traceback|failed|critical/i.test(line)
-                        const isWarn = /warn|warning/i.test(line)
-                        const isOk = /connected|started|placed|filled|profit|success/i.test(line)
-                        return (
-                          <div key={i} className={
-                            isError ? 'text-red-400' :
-                            isWarn  ? 'text-yellow-400' :
-                            isOk    ? 'text-green-400' :
-                            'text-gray-400'
-                          }>
-                            {line || ' '}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              )}
-            </Card>
+            {/* Process Log — live terminal */}
+            <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} />
           </div>
         </div>
       </div>
