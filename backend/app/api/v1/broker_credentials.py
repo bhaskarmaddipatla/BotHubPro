@@ -22,7 +22,7 @@ def simple_decrypt(value: str) -> str:
 
 
 class IBKRCredentials(BaseModel):
-    host: str = "127.0.0.1"
+    host: str = "host.docker.internal"
     port: int = 7497
     client_id: int = 1
     account: str

@@ -27,3 +27,7 @@ yfinance==0.2.40
 scipy==1.13.1
 numpy==1.26.4
 pandas==2.2.3
+# IBKR connectivity — required by bot runner scripts
+ib_insync==0.9.86
+ibapi==10.19.2
+

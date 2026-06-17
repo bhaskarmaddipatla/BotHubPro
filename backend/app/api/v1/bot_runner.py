@@ -161,7 +161,7 @@ async def start_bot(
 
     config = {
         "broker": "ibkr",
-        "ibkr_host": creds.get("host", "127.0.0.1"),
+        "ibkr_host": creds.get("host", "host.docker.internal"),
         "ibkr_port": creds.get("port", 7497),
         "ibkr_client_id": creds.get("client_id", 1),
         "ibkr_account": creds.get("account", ""),
