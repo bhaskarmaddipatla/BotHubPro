@@ -30,6 +30,7 @@ type RegisterForm = z.infer<typeof registerSchema>
 export default function RegisterPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [registered, setRegistered] = useState<{ message: string; verificationUrl?: string; autoVerified?: boolean } | null>(null)
 
   const { register, handleSubmit, formState: { errors } } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
@@ -39,19 +40,59 @@ export default function RegisterPage() {
   const onSubmit = async (data: RegisterForm) => {
     setLoading(true)
     try {
-      await authApi.register({
+      const res = await authApi.register({
         first_name: data.first_name,
         last_name: data.last_name,
         email: data.email,
         password: data.password,
       })
-      toast.success('Account created! Please check your email to verify.')
-      router.push('/auth/login')
+      const result = res.data
+      if (result.email_verified) {
+        // Dev auto-verify or already verified
+        toast.success('Account created and verified! You can log in now.')
+        router.push('/auth/login')
+        return
+      }
+      setRegistered({
+        message: result.message,
+        verificationUrl: result.verification_url,
+      })
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Registration failed')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (registered) {
+    return (
+      <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center p-4">
+        <div className="w-full max-w-md text-center">
+          <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" className="text-blue-400" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">Check your email</h2>
+          <p className="text-gray-400 mb-6 text-sm leading-relaxed">
+            We sent a verification link to your email address.<br />Click it to activate your account.
+          </p>
+          {registered.verificationUrl && (
+            <div className="bg-yellow-900/30 border border-yellow-600/40 rounded-lg p-4 mb-6 text-left">
+              <p className="text-yellow-300 text-xs font-semibold mb-2">⚠ Email provider not configured</p>
+              <p className="text-yellow-200 text-xs mb-3">No email was sent. Use this link to verify your account:</p>
+              <a
+                href={registered.verificationUrl}
+                className="text-blue-400 text-xs break-all underline hover:text-blue-300"
+              >
+                {registered.verificationUrl}
+              </a>
+            </div>
+          )}
+          <Link href="/auth/login" className="text-blue-400 text-sm hover:text-blue-300">
+            Go to login →
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (

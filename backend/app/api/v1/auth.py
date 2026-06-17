@@ -37,32 +37,92 @@ def create_audit_log(db: Session, user_id, action: str, request: Request = None,
     db.commit()
 
 
-def send_verification_email(email: str, first_name: str, token: str):
-    if not settings.SENDGRID_API_KEY:
-        verify_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
-        logger.info(f"[EMAIL SKIPPED] Verification link for {email}: {verify_url}")
-        return
-    try:
-        import sendgrid
-        from sendgrid.helpers.mail import Mail
-        verify_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
-        message = Mail(
-            from_email=settings.FROM_EMAIL,
-            to_emails=email,
-            subject="Verify your BotHub Pro account",
-            html_content=f"""
-            <div style="font-family:sans-serif;max-width:480px;margin:auto">
-              <h2>Welcome to BotHub Pro, {first_name}!</h2>
-              <p>Click the button below to verify your email address and activate your account.</p>
-              <a href="{verify_url}" style="display:inline-block;padding:12px 24px;background:#3b82f6;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a>
-              <p style="margin-top:16px;color:#6b7280;font-size:13px">Or copy this link: {verify_url}</p>
-              <p style="color:#6b7280;font-size:12px">This link expires in 24 hours. If you didn't create an account, ignore this email.</p>
-            </div>"""
-        )
-        sg = sendgrid.SendGridAPIClient(api_key=settings.SENDGRID_API_KEY)
-        sg.send(message)
-    except Exception as e:
-        logger.error(f"Failed to send verification email to {email}: {e}")
+EMAIL_HTML_TEMPLATE = """
+<div style="font-family:sans-serif;max-width:480px;margin:auto;background:#0f172a;padding:32px;border-radius:12px">
+  <div style="margin-bottom:24px">
+    <span style="font-size:22px;font-weight:700;color:#3b82f6">BotHub Pro</span>
+  </div>
+  <h2 style="color:#f1f5f9;margin-top:0">Welcome, {first_name}!</h2>
+  <p style="color:#94a3b8">Click the button below to verify your email address and activate your account.</p>
+  <a href="{verify_url}" style="display:inline-block;padding:12px 28px;background:#3b82f6;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0">
+    Verify Email Address
+  </a>
+  <p style="margin-top:20px;color:#64748b;font-size:13px">Or copy this link:<br><a href="{verify_url}" style="color:#3b82f6">{verify_url}</a></p>
+  <p style="color:#475569;font-size:12px;margin-top:24px;border-top:1px solid #1e293b;padding-top:16px">
+    This link expires in 24 hours. If you didn't create an account, ignore this email.
+  </p>
+</div>
+"""
+
+
+def _build_email_content(first_name: str, verify_url: str) -> tuple[str, str]:
+    html = EMAIL_HTML_TEMPLATE.format(first_name=first_name, verify_url=verify_url)
+    text = f"Welcome to BotHub Pro, {first_name}!\n\nVerify your email: {verify_url}\n\nThis link expires in 24 hours."
+    return html, text
+
+
+def _send_via_sendgrid(email: str, subject: str, html: str) -> None:
+    import sendgrid
+    from sendgrid.helpers.mail import Mail
+    message = Mail(
+        from_email=settings.FROM_EMAIL,
+        to_emails=email,
+        subject=subject,
+        html_content=html,
+    )
+    sg = sendgrid.SendGridAPIClient(api_key=settings.SENDGRID_API_KEY)
+    response = sg.send(message)
+    if response.status_code >= 400:
+        raise RuntimeError(f"SendGrid returned {response.status_code}")
+
+
+def _send_via_smtp(email: str, subject: str, html: str, plain: str) -> None:
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = settings.FROM_EMAIL
+    msg["To"] = email
+    msg.attach(MIMEText(plain, "plain"))
+    msg.attach(MIMEText(html, "html"))
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
+        if settings.SMTP_USE_TLS:
+            server.starttls()
+        if settings.SMTP_USER and settings.SMTP_PASSWORD:
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        server.sendmail(settings.FROM_EMAIL, [email], msg.as_string())
+
+
+def send_verification_email(email: str, first_name: str, token: str) -> None:
+    verify_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
+    subject = "Verify your BotHub Pro account"
+    html, plain = _build_email_content(first_name, verify_url)
+
+    if settings.SENDGRID_API_KEY:
+        try:
+            _send_via_sendgrid(email, subject, html)
+            logger.info(f"Verification email sent via SendGrid to {email}")
+            return
+        except Exception as e:
+            logger.error(f"SendGrid failed for {email}: {e}")
+
+    if settings.SMTP_HOST:
+        try:
+            _send_via_smtp(email, subject, html, plain)
+            logger.info(f"Verification email sent via SMTP to {email}")
+            return
+        except Exception as e:
+            logger.error(f"SMTP failed for {email}: {e}")
+
+    # No email provider configured — log the link so dev can manually verify
+    logger.warning(
+        f"[NO EMAIL PROVIDER] Verification link for {email}: {verify_url}"
+    )
+
+
+def _email_provider_configured() -> bool:
+    return bool(settings.SENDGRID_API_KEY or settings.SMTP_HOST)
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -71,20 +131,48 @@ async def register(request_data: RegisterRequest, background_tasks: BackgroundTa
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    has_provider = _email_provider_configured()
     verification_token = generate_secure_token()
+
+    # In dev with no email provider, auto-verify so users aren't stuck
+    auto_verified = not has_provider and settings.ENVIRONMENT == "development"
+
     user = User(
         email=request_data.email,
         first_name=request_data.first_name,
         last_name=request_data.last_name,
         hashed_password=get_password_hash(request_data.password),
-        email_verification_token=verification_token,
-        status=UserStatus.pending_verification
+        email_verification_token=None if auto_verified else verification_token,
+        is_email_verified=auto_verified,
+        status=UserStatus.active if auto_verified else UserStatus.pending_verification,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    if auto_verified:
+        return {
+            "message": "Registration successful. Your account is active (dev mode: email verification skipped).",
+            "user_id": str(user.id),
+            "email_verified": True,
+        }
+
     background_tasks.add_task(send_verification_email, user.email, user.first_name, verification_token)
-    return {"message": "Registration successful. Please check your email to verify your account.", "user_id": str(user.id)}
+
+    verify_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={verification_token}"
+    response: dict = {
+        "message": "Registration successful. Please check your email to verify your account.",
+        "user_id": str(user.id),
+        "email_verified": False,
+    }
+    # Include link in response when no provider is configured (production misconfiguration)
+    if not has_provider:
+        response["verification_url"] = verify_url
+        response["message"] = (
+            "Registration successful. No email provider is configured — "
+            "use the verification_url in this response to verify your account."
+        )
+    return response
 
 
 @router.get("/verify-email/{token}")

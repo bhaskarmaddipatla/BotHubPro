@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
     SENDGRID_API_KEY: str = ""
     FROM_EMAIL: str = "noreply@bothubpro.com"
+    # SMTP email (alternative to SendGrid — works with Gmail, AWS SES, etc.)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
     FRONTEND_URL: str = "http://localhost:3000"
     MFA_ISSUER: str = "BotHubPro"
     ENVIRONMENT: str = "development"
