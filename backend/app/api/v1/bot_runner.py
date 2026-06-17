@@ -226,17 +226,26 @@ async def start_bot(
     }))
 
     backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+
+    # Use a client_id derived from the bot_id so multiple bots don't collide,
+    # and so it differs from any local direct connection (e.g. clientId=99).
+    # Take last 3 digits of bot_id int representation, keep in 1-899 range.
+    auto_client_id = (int(str(bot_id).replace("-", ""), 16) % 899) + 1
+    effective_client_id = config.get("ibkr_client_id") or auto_client_id
+
     env = os.environ.copy()
     env.update({
+        # Force unbuffered output so bot.log is written in real time
+        "PYTHONUNBUFFERED": "1",
         "DATA_DIR": str(data_path),
         "IBKR_HOST": str(config["ibkr_host"]),
         "IBKR_PORT": str(config["ibkr_port"]),
-        "IBKR_CLIENT_ID": str(config["ibkr_client_id"]),
+        "IBKR_CLIENT_ID": str(effective_client_id),
         "IBKR_ACCOUNT": str(config["ibkr_account"]),
         "IBKR_PAPER": str(config["paper_trading"]).lower(),
+        "BROKER": "ibkr",
         "BOT_ID": str(bot_id),
         "USER_ID": str(current_user.id),
-        # Service token — used instead of user JWT for all bot → platform callbacks
         "BOT_SERVICE_TOKEN": service_token,
         "NOTIFY_URL": f"{backend_url}/api/v1/bot-runner/{bot_id}/trade-event",
         "HEARTBEAT_URL": f"{backend_url}/api/v1/bot-runner/{bot_id}/heartbeat",
@@ -255,7 +264,7 @@ async def start_bot(
     try:
         log_file = open(log_path, "w", buffering=1)
         proc = subprocess.Popen(
-            ["python", str(runner_path), "--config", str(config_path)],
+            ["python", "-u", str(runner_path), "--config", str(config_path)],
             env=env,
             stdout=log_file,
             stderr=log_file,
@@ -393,11 +402,14 @@ async def diagnose_bot(
 
     # 2. IBKR credentials
     creds = _get_ibkr_creds(current_user.id, db) or {}
+    auto_client_id = (int(str(bot_id).replace("-", ""), 16) % 899) + 1
+    effective_client_id = creds.get("client_id") or auto_client_id
     report["ibkr_creds"] = {
         "host": creds.get("host", "NOT SET"),
         "port": creds.get("port", "NOT SET"),
         "account": creds.get("account", "NOT SET"),
         "paper_trading": creds.get("paper_trading", True),
+        "client_id_used": effective_client_id,
         "has_creds": bool(creds),
     }
 
