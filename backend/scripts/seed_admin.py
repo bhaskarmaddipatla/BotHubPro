@@ -21,7 +21,8 @@ Base.metadata.create_all(bind=engine)
 GIT_ENGINE = {
     "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
     "git_branch": "claude/elegant-brown-n7xf4v",
-    "git_path": "bots/engine",   # runner.py lives here; STRATEGY env var selects the strategy
+    "git_path": "bots",          # sync the whole bots/ package so imports work
+    "entry_file": "engine/runner.py",  # path relative to bot_files_dir
 }
 
 SPX_BOTS = [
@@ -96,9 +97,7 @@ SPX_BOTS = [
             "entry_file": "runner.py", "symbol": "SPX", "dte": 0,
             "strategy": "gamma_bias", "use_gex": True,
             "profit_target_pct": 60, "stop_loss_pct": 150,
-            "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
-            "git_branch": "claude/elegant-brown-n7xf4v",
-            "git_path": "bots/engine",
+            **GIT_ENGINE,
         },
         "schedule_cron": "45 9 * * 1-5",
         "is_marketplace": True,
@@ -113,9 +112,7 @@ SPX_BOTS = [
             "entry_file": "runner.py", "symbol": "SPX", "dte": 0,
             "strategy": "premarket_gap", "gap_threshold_pts": 10,
             "profit_target_pct": 50, "stop_loss_pct": 200,
-            "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
-            "git_branch": "claude/elegant-brown-n7xf4v",
-            "git_path": "bots/engine",
+            **GIT_ENGINE,
         },
         "schedule_cron": "30 9 * * 1-5",
         "is_marketplace": True,
@@ -162,7 +159,7 @@ def seed_admin():
                 if existing_bot:
                     cfg = dict(existing_bot.configuration or {})
                     changed = False
-                    for key in ("git_repo", "git_branch", "git_path", "strategy"):
+                    for key in ("git_repo", "git_branch", "git_path", "entry_file", "strategy"):
                         if key in b["configuration"] and cfg.get(key) != b["configuration"][key]:
                             cfg[key] = b["configuration"][key]
                             changed = True

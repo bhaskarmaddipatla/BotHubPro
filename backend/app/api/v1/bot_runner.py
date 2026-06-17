@@ -191,6 +191,9 @@ async def start_bot(
         if not ok:
             raise HTTPException(status_code=500, detail=f"Failed to sync bot from GitHub: {msg}")
 
+    # When the repo uses a shared engine (bots/engine/runner.py imports bots.*),
+    # git_path="bots" copies the whole bots/ package and entry_file="engine/runner.py".
+    # Resolve the actual script path relative to bot_files_dir.
     runner_path = bot_files_dir / entry_file
 
     # If no bot file uploaded yet, write a simulation stub so the process starts
