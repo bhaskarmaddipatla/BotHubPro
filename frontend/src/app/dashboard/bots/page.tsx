@@ -8,7 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { botsApi, executionsApi, api, subscriptionsApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { Play, Trash2, Upload, Clock, X, FileCode, Lock, Radio } from 'lucide-react'
+import { Play, Trash2, Upload, Clock, X, FileCode, Lock, Radio, LayoutGrid, List, Grid3X3 } from 'lucide-react'
+
+type ViewMode = 'cards' | 'compact' | 'list'
 
 const categoryColors: Record<string, string> = {
   credit_spread: 'bg-blue-500/20 text-blue-400',
@@ -28,6 +30,49 @@ const SCHEDULE_TYPES = [
   { value: 'cron', label: 'Cron Expression', icon: '⚙️', description: 'Advanced custom schedule' },
 ]
 
+function BotActions({ bot, hasSubscription, isAdmin, runningBots, onRun, onLive, onSchedule, onFiles, onDelete }: {
+  bot: any; hasSubscription: boolean; isAdmin: boolean; runningBots: Set<string>
+  onRun: (id: string) => void; onLive: (id: string) => void; onSchedule: (id: string) => void
+  onFiles: (id: string) => void; onDelete: (id: string) => void
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Button size="sm"
+        className={`flex-1 gap-1 text-xs h-8 ${!hasSubscription && !isAdmin ? 'opacity-60' : ''}`}
+        onClick={() => onRun(bot.id)}
+        disabled={runningBots.has(bot.id)}>
+        {!hasSubscription && !isAdmin ? <Lock size={11} /> : <Play size={11} />}
+        {runningBots.has(bot.id) ? 'Running...' : hasSubscription || isAdmin ? 'Run Now' : 'Locked'}
+      </Button>
+      {(hasSubscription || isAdmin) && (
+        <Button size="sm" variant="outline"
+          className="border-green-500/30 text-green-400 hover:text-green-300 hover:bg-green-500/10 h-8 gap-1 text-xs"
+          title="Live Monitor" onClick={() => onLive(bot.id)}>
+          <Radio size={11} /> Live
+        </Button>
+      )}
+      {isAdmin && (
+        <Button size="sm" variant="outline" className="border-[#1e2a3a] text-cyan-400 hover:text-cyan-300 h-8"
+          title="Set Schedule" onClick={() => onSchedule(bot.id)}>
+          <Clock size={13} />
+        </Button>
+      )}
+      {isAdmin && (
+        <Button size="sm" variant="outline" className="border-[#1e2a3a] text-gray-400 hover:text-white h-8"
+          title="View Files" onClick={() => onFiles(bot.id)}>
+          <FileCode size={13} />
+        </Button>
+      )}
+      {isAdmin && (
+        <Button size="sm" variant="outline" className="border-[#1e2a3a] text-red-400 hover:text-red-300 h-8"
+          onClick={() => onDelete(bot.id)}>
+          <Trash2 size={13} />
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export default function BotsPage() {
   const router = useRouter()
   const [bots, setBots] = useState<any[]>([])
@@ -40,7 +85,16 @@ export default function BotsPage() {
   const [botFiles, setBotFiles] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
   const [runningBots, setRunningBots] = useState<Set<string>>(new Set())
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') return (localStorage.getItem('bots_view') as ViewMode) || 'cards'
+    return 'cards'
+  })
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const setView = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem('bots_view', mode)
+  }
 
   const [uploadForm, setUploadForm] = useState({
     name: '', description: '', category: 'custom',
@@ -172,11 +226,34 @@ export default function BotsPage() {
               }
             </p>
           </div>
-          {isAdmin && (
-            <Button className="gap-2" onClick={() => setShowUpload(true)}>
-              <Upload size={16} /> Upload Bot
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex items-center bg-[#0f1623] border border-[#1e2a3a] rounded-lg p-0.5">
+              <button
+                onClick={() => setView('cards')}
+                title="Card view"
+                className={`p-2 rounded-md transition-colors ${viewMode === 'cards' ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                <LayoutGrid size={15} />
+              </button>
+              <button
+                onClick={() => setView('compact')}
+                title="Compact grid"
+                className={`p-2 rounded-md transition-colors ${viewMode === 'compact' ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                <Grid3X3 size={15} />
+              </button>
+              <button
+                onClick={() => setView('list')}
+                title="List view"
+                className={`p-2 rounded-md transition-colors ${viewMode === 'list' ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                <List size={15} />
+              </button>
+            </div>
+            {isAdmin && (
+              <Button className="gap-2" onClick={() => setShowUpload(true)}>
+                <Upload size={16} /> Upload Bot
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Subscription banner for non-subscribers */}
@@ -332,7 +409,7 @@ export default function BotsPage() {
           </div>
         )}
 
-        {/* Bots Grid */}
+        {/* Bots — empty state */}
         {bots.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 bg-[#1e2a3a] rounded-full flex items-center justify-center mb-4">
@@ -348,7 +425,9 @@ export default function BotsPage() {
               <Button className="gap-2" onClick={() => setShowUpload(true)}><Upload size={16} /> Upload Bot</Button>
             )}
           </div>
-        ) : (
+
+        ) : viewMode === 'cards' ? (
+          /* ── Card view (default) ── */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {bots.map((bot) => (
               <Card key={bot.id} className="bg-[#0f1623] border-[#1e2a3a] hover:border-blue-500/20 transition-colors">
@@ -361,16 +440,13 @@ export default function BotsPage() {
                       'bg-yellow-500/20 text-yellow-400'
                     }`}>{bot.status}</span>
                   </div>
-
                   {bot.description && <p className="text-gray-400 text-xs mb-3 line-clamp-2">{bot.description}</p>}
-
                   <div className="flex items-center gap-2 mb-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColors[bot.category] || 'bg-gray-500/20 text-gray-400'}`}>
                       {bot.category?.replace(/_/g, ' ')}
                     </span>
                     <span className="text-xs text-gray-500">{bot.risk_level} risk</span>
                   </div>
-
                   {bot.schedule_cron && (
                     <div className="flex items-center gap-1.5 mb-3 text-xs text-cyan-400 bg-cyan-500/10 rounded px-2 py-1">
                       <Clock size={10} />
@@ -382,55 +458,174 @@ export default function BotsPage() {
                       </span>
                     </div>
                   )}
-
-                  <div className="flex items-center gap-1.5">
-                    {/* Run button - all users, but locked if no subscription */}
-                    <Button size="sm"
-                      className={`flex-1 gap-1 text-xs h-8 ${!hasSubscription && !isAdmin ? 'opacity-60' : ''}`}
-                      onClick={() => handleRun(bot.id)}
-                      disabled={runningBots.has(bot.id)}>
-                      {!hasSubscription && !isAdmin ? <Lock size={11} /> : <Play size={11} />}
-                      {runningBots.has(bot.id) ? 'Running...' : hasSubscription || isAdmin ? 'Run Now' : 'Locked'}
-                    </Button>
-
-                    {/* Live Monitor button */}
-                    {(hasSubscription || isAdmin) && (
-                      <Button size="sm" variant="outline"
-                        className="border-green-500/30 text-green-400 hover:text-green-300 hover:bg-green-500/10 h-8 gap-1 text-xs"
-                        title="Live Monitor"
-                        onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}>
-                        <Radio size={11} /> Live
-                      </Button>
-                    )}
-
-                    {/* Schedule - admin only */}
-                    {isAdmin && (
-                      <Button size="sm" variant="outline" className="border-[#1e2a3a] text-cyan-400 hover:text-cyan-300 h-8"
-                        title="Set Schedule"
-                        onClick={() => { setScheduleForm({ type: bot.configuration?.schedule_type || 'manual', value: bot.configuration?.schedule_value || '09:45' }); setShowSchedule(bot.id) }}>
-                        <Clock size={13} />
-                      </Button>
-                    )}
-
-                    {/* View Files - admin only */}
-                    {isAdmin && (
-                      <Button size="sm" variant="outline" className="border-[#1e2a3a] text-gray-400 hover:text-white h-8"
-                        title="View Files" onClick={() => loadFiles(bot.id)}>
-                        <FileCode size={13} />
-                      </Button>
-                    )}
-
-                    {/* Delete - admin only */}
-                    {isAdmin && (
-                      <Button size="sm" variant="outline" className="border-[#1e2a3a] text-red-400 hover:text-red-300 h-8"
-                        onClick={() => handleDelete(bot.id)}>
-                        <Trash2 size={13} />
-                      </Button>
-                    )}
-                  </div>
+                  <BotActions bot={bot} hasSubscription={hasSubscription} isAdmin={isAdmin} runningBots={runningBots}
+                    onRun={handleRun} onLive={id => router.push(`/dashboard/bots/${id}/live`)}
+                    onSchedule={id => { setScheduleForm({ type: bot.configuration?.schedule_type || 'manual', value: bot.configuration?.schedule_value || '09:45' }); setShowSchedule(id) }}
+                    onFiles={loadFiles} onDelete={handleDelete} />
                 </CardContent>
               </Card>
             ))}
+          </div>
+
+        ) : viewMode === 'compact' ? (
+          /* ── Compact grid — name + badges + actions, no description ── */
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {bots.map((bot) => (
+              <div key={bot.id}
+                className="bg-[#0f1623] border border-[#1e2a3a] hover:border-blue-500/30 rounded-xl p-4 flex flex-col gap-3 transition-colors group">
+                <div className="flex items-start justify-between gap-1">
+                  <h3 className="font-semibold text-white text-sm leading-snug">{bot.name}</h3>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                    bot.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                    bot.status === 'inactive' ? 'bg-gray-500/20 text-gray-400' :
+                    'bg-yellow-500/20 text-yellow-400'
+                  }`}>{bot.status}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${categoryColors[bot.category] || 'bg-gray-500/20 text-gray-400'}`}>
+                    {bot.category?.replace(/_/g, ' ')}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    bot.risk_level === 'low' ? 'bg-green-500/15 text-green-400' :
+                    bot.risk_level === 'high' ? 'bg-red-500/15 text-red-400' :
+                    'bg-yellow-500/15 text-yellow-400'
+                  }`}>{bot.risk_level}</span>
+                </div>
+                {/* Quick action strip */}
+                <div className="flex items-center gap-1 mt-auto">
+                  <button
+                    onClick={() => handleRun(bot.id)}
+                    disabled={runningBots.has(bot.id)}
+                    title={hasSubscription || isAdmin ? 'Run Now' : 'Subscription required'}
+                    className={`flex-1 flex items-center justify-center gap-1 h-7 rounded-lg text-[11px] font-medium transition-colors
+                      ${hasSubscription || isAdmin
+                        ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                        : 'bg-gray-500/10 text-gray-500 cursor-not-allowed'}`}>
+                    {!hasSubscription && !isAdmin ? <Lock size={10} /> : <Play size={10} />}
+                    {runningBots.has(bot.id) ? '…' : 'Run'}
+                  </button>
+                  {(hasSubscription || isAdmin) && (
+                    <button
+                      onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}
+                      title="Live Monitor"
+                      className="flex items-center justify-center w-7 h-7 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors">
+                      <Radio size={11} />
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDelete(bot.id)}
+                      title="Delete"
+                      className="flex items-center justify-center w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
+                      <Trash2 size={11} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+        ) : (
+          /* ── List view — table with one row per bot ── */
+          <div className="bg-[#0f1623] border border-[#1e2a3a] rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#1e2a3a] text-gray-400 text-xs">
+                  <th className="text-left px-4 py-3 font-medium">Bot</th>
+                  <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Category</th>
+                  <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Risk</th>
+                  <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Schedule</th>
+                  <th className="text-left px-4 py-3 font-medium">Status</th>
+                  <th className="text-right px-4 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bots.map((bot, i) => (
+                  <tr key={bot.id}
+                    className={`border-b border-[#1e2a3a]/50 hover:bg-white/[0.02] transition-colors ${i === bots.length - 1 ? 'border-b-0' : ''}`}>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-white text-sm">{bot.name}</div>
+                      {bot.description && (
+                        <div className="text-gray-500 text-xs mt-0.5 line-clamp-1 max-w-xs">{bot.description}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColors[bot.category] || 'bg-gray-500/20 text-gray-400'}`}>
+                        {bot.category?.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <span className={`text-xs ${
+                        bot.risk_level === 'low' ? 'text-green-400' :
+                        bot.risk_level === 'high' ? 'text-red-400' : 'text-yellow-400'
+                      }`}>{bot.risk_level}</span>
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      {bot.schedule_cron ? (
+                        <span className="text-xs text-cyan-400 font-mono">
+                          {bot.configuration?.schedule_type === 'market_open' ? 'Market Open' :
+                           bot.configuration?.schedule_type === 'market_close' ? 'Market Close' :
+                           bot.configuration?.schedule_type === 'daily_time' ? `Daily ${bot.configuration?.schedule_value}` :
+                           bot.schedule_cron}
+                        </span>
+                      ) : <span className="text-xs text-gray-600">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        bot.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                        bot.status === 'inactive' ? 'bg-gray-500/20 text-gray-400' :
+                        'bg-yellow-500/20 text-yellow-400'
+                      }`}>{bot.status}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 justify-end">
+                        <button
+                          onClick={() => handleRun(bot.id)}
+                          disabled={runningBots.has(bot.id)}
+                          title={hasSubscription || isAdmin ? 'Run Now' : 'Subscription required'}
+                          className={`flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium transition-colors
+                            ${hasSubscription || isAdmin
+                              ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                              : 'bg-gray-500/10 text-gray-500 cursor-not-allowed'}`}>
+                          {!hasSubscription && !isAdmin ? <Lock size={10} /> : <Play size={10} />}
+                          {runningBots.has(bot.id) ? 'Running…' : 'Run'}
+                        </button>
+                        {(hasSubscription || isAdmin) && (
+                          <button
+                            onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}
+                            title="Live Monitor"
+                            className="flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors">
+                            <Radio size={10} /> Live
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <>
+                            <button
+                              title="Set Schedule"
+                              onClick={() => { setScheduleForm({ type: bot.configuration?.schedule_type || 'manual', value: bot.configuration?.schedule_value || '09:45' }); setShowSchedule(bot.id) }}
+                              className="flex items-center justify-center w-7 h-7 rounded-lg border border-[#1e2a3a] text-cyan-400 hover:bg-cyan-500/10 transition-colors">
+                              <Clock size={12} />
+                            </button>
+                            <button
+                              title="View Files"
+                              onClick={() => loadFiles(bot.id)}
+                              className="flex items-center justify-center w-7 h-7 rounded-lg border border-[#1e2a3a] text-gray-400 hover:text-white transition-colors">
+                              <FileCode size={12} />
+                            </button>
+                            <button
+                              title="Delete"
+                              onClick={() => handleDelete(bot.id)}
+                              className="flex items-center justify-center w-7 h-7 rounded-lg border border-[#1e2a3a] text-red-400 hover:bg-red-500/10 transition-colors">
+                              <Trash2 size={12} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
