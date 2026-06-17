@@ -251,12 +251,14 @@ async def start_bot(
         elif isinstance(v, (int, float, bool)):
             env[k.upper()] = str(v).lower() if isinstance(v, bool) else str(v)
 
+    log_path = data_path / "bot.log"
     try:
+        log_file = open(log_path, "w", buffering=1)
         proc = subprocess.Popen(
             ["python", str(runner_path), "--config", str(config_path)],
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
             cwd=str(bot_files_dir),
         )
     except Exception as e:
@@ -315,6 +317,25 @@ async def stop_bot(
         db.commit()
 
     return {"status": "stopped"}
+
+
+@router.get("/{bot_id}/logs")
+async def bot_logs(
+    bot_id: UUID,
+    lines: int = 100,
+    current_user: User = Depends(get_current_active_user),
+):
+    data_path = Path(f"/data/{current_user.id}/{bot_id}")
+    log_path = data_path / "bot.log"
+    if not log_path.exists():
+        return {"lines": [], "message": "No log file found — bot may not have started yet"}
+    try:
+        with open(log_path, "r") as f:
+            all_lines = f.readlines()
+        tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        return {"lines": [l.rstrip() for l in tail], "total_lines": len(all_lines)}
+    except Exception as e:
+        return {"lines": [], "error": str(e)}
 
 
 @router.get("/{bot_id}/status")

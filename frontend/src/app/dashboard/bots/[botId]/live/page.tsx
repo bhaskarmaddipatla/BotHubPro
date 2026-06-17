@@ -148,6 +148,8 @@ export default function LiveBotPage() {
   const [pid, setPid] = useState<number | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [tradeLog, setTradeLog] = useState<TradeEntry[]>([])
+  const [botLog, setBotLog] = useState<string[]>([])
+  const [showLog, setShowLog] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [tradeParams, setTradeParams] = useState<Record<string, number>>({})
   const [botDefaults, setBotDefaults] = useState<Record<string, number>>({})
@@ -204,17 +206,26 @@ export default function LiveBotPage() {
     try { const r = await botRunnerApi.positions(botId); setPositions(Array.isArray(r.data) ? r.data : []) } catch { setPositions([]) }
   }, [botId])
 
+  const fetchBotLog = useCallback(async () => {
+    if (!botId) return
+    try {
+      const { api } = await import('@/lib/api')
+      const r = await api.get(`/api/v1/bot-runner/${botId}/logs?lines=200`)
+      setBotLog(r.data.lines || [])
+    } catch { setBotLog([]) }
+  }, [botId])
+
   const fetchTradeLog = useCallback(async () => {
     if (!botId) return
     try { const r = await botRunnerApi.tradeLog(botId); setTradeLog(Array.isArray(r.data) ? r.data : []) } catch { setTradeLog([]) }
   }, [botId])
 
   useEffect(() => {
-    fetchStatus(); fetchPositions(); fetchTradeLog()
+    fetchStatus(); fetchPositions(); fetchTradeLog(); fetchBotLog()
     const s = setInterval(fetchStatus, 5000)
-    const d = setInterval(() => { fetchPositions(); fetchTradeLog() }, 10000)
+    const d = setInterval(() => { fetchPositions(); fetchTradeLog(); fetchBotLog() }, 10000)
     return () => { clearInterval(s); clearInterval(d) }
-  }, [fetchStatus, fetchPositions, fetchTradeLog])
+  }, [fetchStatus, fetchPositions, fetchTradeLog, fetchBotLog])
 
   const handleStart = async () => {
     setActionLoading(true)
@@ -481,6 +492,52 @@ export default function LiveBotPage() {
                   </div>
                 )}
               </CardContent>
+            </Card>
+
+            {/* Process Log */}
+            <Card className="bg-[#0f1623] border-[#1e2a3a]">
+              <CardHeader className="pb-1 pt-3 px-4">
+                <CardTitle className="text-sm text-white flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    Process Log
+                    {botLog.length > 0 && (
+                      <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{botLog.length} lines</span>
+                    )}
+                  </span>
+                  <button
+                    onClick={() => setShowLog(v => !v)}
+                    className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                    {showLog ? 'Hide' : 'Show'}
+                  </button>
+                </CardTitle>
+              </CardHeader>
+              {showLog && (
+                <CardContent className="px-0 pb-2">
+                  {botLog.length === 0 ? (
+                    <p className="text-gray-600 text-xs text-center py-5">
+                      No log output yet — bot may still be starting up
+                    </p>
+                  ) : (
+                    <div className="bg-[#060a12] mx-2 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs text-gray-300 space-y-0.5">
+                      {botLog.map((line, i) => {
+                        const isError = /error|exception|traceback|failed|critical/i.test(line)
+                        const isWarn = /warn|warning/i.test(line)
+                        const isOk = /connected|started|placed|filled|profit|success/i.test(line)
+                        return (
+                          <div key={i} className={
+                            isError ? 'text-red-400' :
+                            isWarn  ? 'text-yellow-400' :
+                            isOk    ? 'text-green-400' :
+                            'text-gray-400'
+                          }>
+                            {line || ' '}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              )}
             </Card>
           </div>
         </div>
