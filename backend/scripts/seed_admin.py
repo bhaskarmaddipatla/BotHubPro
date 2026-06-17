@@ -18,6 +18,12 @@ from app.core.security import get_password_hash
 
 Base.metadata.create_all(bind=engine)
 
+GIT_ENGINE = {
+    "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
+    "git_branch": "claude/elegant-brown-n7xf4v",
+    "git_path": "bots/engine",   # runner.py lives here; STRATEGY env var selects the strategy
+}
+
 SPX_BOTS = [
     {
         "name": "SPX 0DTE Credit Spread",
@@ -26,12 +32,11 @@ SPX_BOTS = [
         "risk_level": RiskLevel.medium,
         "configuration": {
             "entry_file": "runner.py",
+            "strategy": "credit_spread",
             "symbol": "SPX", "dte": 0, "target_delta": 0.12,
             "max_trades_per_day": 4, "profit_target_pct": 50, "stop_loss_pct": 200,
             "trade_window_start": "09:45", "trade_window_end": "15:00",
-            "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
-            "git_branch": "claude/elegant-brown-n7xf4v",
-            "git_path": "bots/strategy/credit_spread",
+            **GIT_ENGINE,
         },
         "schedule_cron": "45 9 * * 1-5",
         "is_marketplace": True,
@@ -42,7 +47,12 @@ SPX_BOTS = [
         "description": "Sells ATM iron flies on SPX 0DTE. Profits from low-volatility sideways action. Takes profit at 25% of credit received; cuts loss at 150% of credit received.",
         "category": BotCategory.iron_fly,
         "risk_level": RiskLevel.high,
-        "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "iron_fly", "wing_width": 50, "profit_target_pct": 25, "stop_loss_pct": 150},
+        "configuration": {
+            "entry_file": "runner.py",
+            "strategy": "iron_fly",
+            "symbol": "SPX", "dte": 0, "wing_width": 50, "profit_target_pct": 25, "stop_loss_pct": 150,
+            **GIT_ENGINE,
+        },
         "schedule_cron": "0 10 * * 1-5",
         "is_marketplace": True,
         "marketplace_description": "ATM iron fly on SPX 0DTE. Best in low-IV regimes (VIX < 18). Symmetric risk with defined max loss.",
@@ -52,7 +62,12 @@ SPX_BOTS = [
         "description": "Sells OTM iron condors on SPX targeting the 10-delta strikes on both sides. Enters after 10am when the opening range is established. Takes profit at 50% of credit received; cuts loss at 200% of credit received.",
         "category": BotCategory.iron_condor,
         "risk_level": RiskLevel.low,
-        "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "iron_condor", "target_delta": 0.10, "wing_width": 25, "profit_target_pct": 50, "stop_loss_pct": 200},
+        "configuration": {
+            "entry_file": "runner.py",
+            "strategy": "iron_condor",
+            "symbol": "SPX", "dte": 0, "target_delta": 0.10, "wing_width": 25, "profit_target_pct": 50, "stop_loss_pct": 200,
+            **GIT_ENGINE,
+        },
         "schedule_cron": "0 10 * * 1-5",
         "is_marketplace": True,
         "marketplace_description": "Low-delta iron condor on SPX 0DTE. High probability of profit with defined risk on both sides.",
@@ -62,7 +77,12 @@ SPX_BOTS = [
         "description": "Buys SPX broken-wing butterflies targeting the expected move. Best on high-IV days when the market is likely to pin. Takes profit at 100% of debit paid; stops at 100% of debit paid.",
         "category": BotCategory.butterfly,
         "risk_level": RiskLevel.medium,
-        "configuration": {"entry_file": "runner.py", "symbol": "SPX", "dte": 0, "strategy": "butterfly", "broken_wing": True, "profit_target_pct": 100, "stop_loss_pct": 100},
+        "configuration": {
+            "entry_file": "runner.py",
+            "strategy": "butterfly",
+            "symbol": "SPX", "dte": 0, "broken_wing": True, "profit_target_pct": 100, "stop_loss_pct": 100,
+            **GIT_ENGINE,
+        },
         "schedule_cron": "30 9 * * 1-5",
         "is_marketplace": True,
         "marketplace_description": "Broken-wing butterfly on SPX 0DTE. Skewed risk profile with near-zero downside on one side.",
