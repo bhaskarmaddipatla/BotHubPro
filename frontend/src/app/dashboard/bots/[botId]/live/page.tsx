@@ -150,7 +150,12 @@ export default function LiveBotPage() {
   const [tradeLog, setTradeLog] = useState<TradeEntry[]>([])
   const [actionLoading, setActionLoading] = useState(false)
   const [tradeParams, setTradeParams] = useState<Record<string, number>>({})
+  const [botDefaults, setBotDefaults] = useState<Record<string, number>>({})
   const [showConfirm, setShowConfirm] = useState(false)
+  const [hasUnsaved, setHasUnsaved] = useState(false)
+
+  // Persist params to localStorage so they survive navigation
+  const storageKey = botId ? `bot_params_${botId}` : null
 
   useEffect(() => {
     if (!botId) return
@@ -159,11 +164,35 @@ export default function LiveBotPage() {
       const category = r.data.category || 'credit_spread'
       const defaults = DEFAULT_PARAMS[category] || DEFAULT_PARAMS.credit_spread
       const saved = r.data.configuration || {}
-      const merged: Record<string, number> = { ...defaults }
-      Object.keys(defaults).forEach(k => { if (saved[k] !== undefined) merged[k] = +saved[k] })
-      setTradeParams(merged)
+      const botOriginal: Record<string, number> = { ...defaults }
+      Object.keys(defaults).forEach(k => { if (saved[k] !== undefined) botOriginal[k] = +saved[k] })
+      setBotDefaults(botOriginal)
+
+      // Load user's last-saved params from localStorage; fall back to bot defaults
+      const stored = storageKey ? localStorage.getItem(storageKey) : null
+      if (stored) {
+        try { setTradeParams(JSON.parse(stored)); return } catch {}
+      }
+      setTradeParams(botOriginal)
     }).catch(() => {})
-  }, [botId])
+  }, [botId, storageKey])
+
+  // Save to localStorage whenever params change
+  const updateParams = (updater: (p: Record<string, number>) => Record<string, number>) => {
+    setTradeParams(prev => {
+      const next = updater(prev)
+      if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next))
+      setHasUnsaved(true)
+      return next
+    })
+  }
+
+  const handleReset = () => {
+    setTradeParams(botDefaults)
+    if (storageKey) localStorage.setItem(storageKey, JSON.stringify(botDefaults))
+    setHasUnsaved(false)
+    toast.success('Reset to bot default values')
+  }
 
   const fetchStatus = useCallback(async () => {
     if (!botId) return
@@ -286,36 +315,56 @@ export default function LiveBotPage() {
                   {running ? 'Locked while running — stop bot to edit.' : 'Set before starting. You will confirm before the bot executes.'}
                 </p>
               </CardHeader>
-              <CardContent className="px-4 pb-4 pt-2 space-y-2">
-                {paramDefs.map(def => (
-                  <div key={def.key} className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 min-w-0">
-                      <span className="text-xs text-gray-300 truncate">{def.label}</span>
-                      {def.unit && <span className="text-xs text-gray-600 shrink-0">({def.unit})</span>}
-                      <span title={def.tooltip} className="text-gray-600 hover:text-gray-400 cursor-help shrink-0 ml-0.5">
-                        <Info size={10} />
-                      </span>
+              <CardContent className="px-4 pb-4 pt-2 space-y-0">
+                {paramDefs.map(def => {
+                  const current = tradeParams[def.key]
+                  const original = botDefaults[def.key]
+                  const changed = original !== undefined && current !== original
+                  return (
+                    <div key={def.key} className="py-1.5 border-b border-[#1e2a3a]/50 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className="text-xs text-gray-300 truncate">{def.label}</span>
+                          {def.unit && <span className="text-xs text-gray-600 shrink-0">({def.unit})</span>}
+                          <span title={def.tooltip} className="text-gray-600 hover:text-gray-400 cursor-help shrink-0 ml-0.5">
+                            <Info size={10} />
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {changed && !running && (
+                            <span className="text-xs text-gray-600" title={`Bot default: ${original}`}>
+                              was {original}
+                            </span>
+                          )}
+                          <input
+                            type="number"
+                            min={def.min}
+                            max={def.max}
+                            step={def.step}
+                            value={current ?? ''}
+                            onChange={e => updateParams(p => ({ ...p, [def.key]: parseFloat(e.target.value) || 0 }))}
+                            disabled={running}
+                            className={`w-20 bg-[#0a0e1a] border rounded-md px-2 py-1 text-xs text-white text-left disabled:opacity-40 focus:outline-none focus:border-blue-500/50 ${changed && !running ? 'border-blue-500/40' : 'border-[#1e2a3a]'}`}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <input
-                      type="number"
-                      min={def.min}
-                      max={def.max}
-                      step={def.step}
-                      value={tradeParams[def.key] ?? ''}
-                      onChange={e => setTradeParams(p => ({ ...p, [def.key]: parseFloat(e.target.value) || 0 }))}
-                      disabled={running}
-                      className="w-20 shrink-0 bg-[#0a0e1a] border border-[#1e2a3a] rounded-md px-2 py-1 text-xs text-white text-right disabled:opacity-40 focus:outline-none focus:border-blue-500/50"
-                    />
-                  </div>
-                ))}
+                  )
+                })}
 
-                {!running && (
-                  <div className="pt-2 border-t border-[#1e2a3a]">
-                    <p className="text-xs text-gray-600">
-                      Clicking <strong className="text-gray-400">Start Bot</strong> shows a confirmation with these values before anything runs.
+                <div className="pt-3 flex items-center justify-between gap-2">
+                  {hasUnsaved && !running ? (
+                    <button onClick={handleReset}
+                      className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
+                      Reset to bot defaults
+                    </button>
+                  ) : <span />}
+                  {!running && (
+                    <p className="text-xs text-gray-600 text-right">
+                      You'll confirm before anything runs.
                     </p>
-                  </div>
-                )}
+                  )}
+                </div>
               </CardContent>
             </Card>
 
