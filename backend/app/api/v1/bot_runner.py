@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.core.database import get_db
-from app.api.deps import get_current_active_user
+from app.api.deps import get_current_active_user, require_verified
 from app.models.user import User
 from app.models.api_key import APIKey
 from app.models.bot import Bot
@@ -144,7 +144,7 @@ class StartBotRequest(BaseModel):
 async def start_bot(
     bot_id: UUID,
     body: StartBotRequest = StartBotRequest(),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_verified),
     db: Session = Depends(get_db),
 ):
     creds = _get_ibkr_creds(current_user.id, db)

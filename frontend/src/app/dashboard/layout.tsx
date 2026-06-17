@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { Sidebar } from '@/components/layout/sidebar'
+import { EmailVerifyBanner } from '@/components/layout/email-verify-banner'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-[#0a0e1a]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-auto">
+        <EmailVerifyBanner />
         {/* Persistent risk disclaimer */}
         <div className="bg-yellow-900/30 border-b border-yellow-500/20 px-4 py-1.5 text-xs text-yellow-400/80 flex items-center justify-between shrink-0">
           <span>
