@@ -20,6 +20,14 @@ export default function AdminPage() {
 
   useEffect(() => { refresh() }, [])
 
+  const handleVerifyEmail = async (email: string) => {
+    try {
+      await api.post('/api/v1/auth/admin/verify-user', { email })
+      toast.success(`${email} verified and activated`)
+      setUsers(users.map(u => u.email === email ? {...u, is_email_verified: true, status: 'active'} : u))
+    } catch { toast.error('Failed to verify user') }
+  }
+
   const handleSuspend = async (userId: string) => {
     try {
       await api.post(`/api/v1/admin/users/${userId}/suspend`)
@@ -159,15 +167,24 @@ export default function AdminPage() {
                       </td>
                       <td className="py-3 px-4 text-xs">{u.mfa_enabled ? <span className="text-green-400">✓</span> : <span className="text-gray-500">—</span>}</td>
                       <td className="py-3 px-4">
-                        {u.role !== 'admin' && (
-                          u.status !== 'suspended' ? (
-                            <Button size="sm" variant="outline" className="border-red-500/30 text-red-400 hover:text-red-300 text-xs h-7"
-                              onClick={() => handleSuspend(u.id)}>Suspend</Button>
-                          ) : (
-                            <Button size="sm" variant="outline" className="border-green-500/30 text-green-400 hover:text-green-300 text-xs h-7"
-                              onClick={() => handleActivate(u.id)}>Activate</Button>
-                          )
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          {!u.is_email_verified && (
+                            <Button size="sm" variant="outline" className="border-blue-500/30 text-blue-400 hover:text-blue-300 text-xs h-7"
+                              onClick={() => handleVerifyEmail(u.email)}
+                              title="Manually verify this user's email">
+                              Verify Email
+                            </Button>
+                          )}
+                          {u.role !== 'admin' && (
+                            u.status !== 'suspended' ? (
+                              <Button size="sm" variant="outline" className="border-red-500/30 text-red-400 hover:text-red-300 text-xs h-7"
+                                onClick={() => handleSuspend(u.id)}>Suspend</Button>
+                            ) : (
+                              <Button size="sm" variant="outline" className="border-green-500/30 text-green-400 hover:text-green-300 text-xs h-7"
+                                onClick={() => handleActivate(u.id)}>Activate</Button>
+                            )
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -26,13 +26,16 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [requiresMfa, setRequiresMfa] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null)
+  const [resending, setResending] = useState(false)
 
-  const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>({
+  const { register, handleSubmit, getValues, formState: { errors } } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema)
   })
 
   const onSubmit = async (data: LoginForm) => {
     setLoading(true)
+    setUnverifiedEmail(null)
     try {
       const res = await authApi.login(data)
       if (res.data.requires_mfa) {
@@ -45,9 +48,28 @@ export default function LoginPage() {
       toast.success('Logged in successfully')
       router.push('/dashboard')
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Login failed')
+      const detail = error.response?.data?.detail || 'Login failed'
+      if (detail === 'Email not verified') {
+        setUnverifiedEmail(getValues('email'))
+      } else {
+        toast.error(detail)
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    if (!unverifiedEmail) return
+    setResending(true)
+    try {
+      const { api } = await import('@/lib/api')
+      await api.post('/api/v1/auth/resend-verification', { email: unverifiedEmail })
+      toast.success('Verification email sent — check your inbox and spam folder')
+    } catch {
+      toast.error('Failed to resend — please try again')
+    } finally {
+      setResending(false)
     }
   }
 
@@ -119,6 +141,21 @@ export default function LoginPage() {
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
+
+          {unverifiedEmail && (
+            <div className="mt-4 bg-yellow-900/30 border border-yellow-600/40 rounded-lg p-4">
+              <p className="text-yellow-300 text-sm font-medium mb-1">Email not verified</p>
+              <p className="text-yellow-200/80 text-xs mb-3">
+                Your account is pending email verification. Check your inbox (and spam folder) for the verification link.
+              </p>
+              <button
+                onClick={handleResend}
+                disabled={resending}
+                className="text-blue-400 hover:text-blue-300 text-xs underline disabled:opacity-50">
+                {resending ? 'Sending…' : 'Resend verification email'}
+              </button>
+            </div>
+          )}
 
           <div className="mt-4 text-center text-sm text-gray-400">
             Don&apos;t have an account?{' '}

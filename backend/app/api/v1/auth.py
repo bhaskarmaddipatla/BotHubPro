@@ -61,6 +61,13 @@ def _build_email_content(first_name: str, verify_url: str) -> tuple[str, str]:
     return html, text
 
 
+def _smtp_from_email() -> str:
+    # Gmail (and most SMTP providers) require From to match the authenticated user
+    if settings.SMTP_HOST and settings.SMTP_USER and settings.FROM_EMAIL == "noreply@bothubpro.com":
+        return settings.SMTP_USER
+    return settings.FROM_EMAIL
+
+
 def _send_via_sendgrid(email: str, subject: str, html: str) -> None:
     import sendgrid
     from sendgrid.helpers.mail import Mail
@@ -80,18 +87,20 @@ def _send_via_smtp(email: str, subject: str, html: str, plain: str) -> None:
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
+    from_addr = _smtp_from_email()
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = settings.FROM_EMAIL
+    msg["From"] = from_addr
     msg["To"] = email
     msg.attach(MIMEText(plain, "plain"))
     msg.attach(MIMEText(html, "html"))
+    logger.info(f"SMTP connecting to {settings.SMTP_HOST}:{settings.SMTP_PORT} as {settings.SMTP_USER}, from={from_addr}")
     with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
         if settings.SMTP_USE_TLS:
             server.starttls()
         if settings.SMTP_USER and settings.SMTP_PASSWORD:
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-        server.sendmail(settings.FROM_EMAIL, [email], msg.as_string())
+        server.sendmail(from_addr, [email], msg.as_string())
 
 
 def send_verification_email(email: str, first_name: str, token: str) -> None:
@@ -185,6 +194,46 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
     user.status = UserStatus.active
     db.commit()
     return {"message": "Email verified successfully"}
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    body: dict,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    email = body.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    user = db.query(User).filter(User.email == email).first()
+    # Always return 200 to avoid leaking whether an email exists
+    if not user or user.is_email_verified:
+        return {"message": "If that email is registered and unverified, a new link has been sent."}
+    token = generate_secure_token()
+    user.email_verification_token = token
+    db.commit()
+    background_tasks.add_task(send_verification_email, user.email, user.first_name, token)
+    return {"message": "Verification email resent. Please check your inbox (and spam folder)."}
+
+
+@router.post("/admin/verify-user")
+async def admin_verify_user(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    from app.models.user import UserRole
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    email = body.get("email", "").strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_email_verified = True
+    user.email_verification_token = None
+    user.status = UserStatus.active
+    db.commit()
+    return {"message": f"User {email} manually verified and activated."}
 
 
 @router.post("/login", response_model=TokenResponse)
