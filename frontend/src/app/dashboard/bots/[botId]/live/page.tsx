@@ -222,6 +222,7 @@ export default function LiveBotPage() {
   const [hasUnsaved, setHasUnsaved] = useState(false)
   const [diagReport, setDiagReport] = useState<any>(null)
   const [diagLoading, setDiagLoading] = useState(false)
+  const [ibkrPaper, setIbkrPaper] = useState<boolean>(true)  // reflects saved IBKR credentials
 
   const runDiagnose = async () => {
     setDiagLoading(true)
@@ -239,6 +240,15 @@ export default function LiveBotPage() {
 
   // Persist params to localStorage so they survive navigation
   const storageKey = botId ? `bot_params_${botId}` : null
+
+  // Fetch saved IBKR credentials to determine paper vs live mode
+  useEffect(() => {
+    import('@/lib/api').then(({ api }) => {
+      api.get('/api/v1/broker-credentials/ibkr').then(r => {
+        setIbkrPaper(r.data?.paper_trading !== false)
+      }).catch(() => {})  // no creds saved yet — default to paper
+    })
+  }, [])
 
   useEffect(() => {
     if (!botId) return
@@ -335,7 +345,7 @@ export default function LiveBotPage() {
 
   const category = bot?.category || 'credit_spread'
   const paramDefs = PARAM_DEFS[category] || PARAM_DEFS.credit_spread
-  const isPaper = bot?.configuration?.paper_trading !== false
+  const isPaper = ibkrPaper  // driven by saved IBKR credentials, not bot config
 
   return (
     <div className="flex flex-col h-full">
