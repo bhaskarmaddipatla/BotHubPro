@@ -35,7 +35,7 @@ export default function SettingsPage() {
   const [brokerTab, setBrokerTab] = useState<BrokerTab>('ibkr')
 
   // IBKR
-  const [ibkr, setIbkr] = useState({ host: '127.0.0.1', port: 7497, client_id: 1, account: '', paper_trading: true })
+  const [ibkr, setIbkr] = useState({ host: '', port: 7497, client_id: 1, account: '', paper_account: '', live_account: '', paper_trading: true })
   const [savingIbkr, setSavingIbkr] = useState(false)
   const [testingConn, setTestingConn] = useState(false)
   const [connResult, setConnResult] = useState<{ reachable: boolean; latency_ms: number | null; message: string } | null>(null)
@@ -203,33 +203,24 @@ export default function SettingsPage() {
                   <p>📋 TWS / IB Gateway must be running on your local machine with <strong>API connections enabled</strong> (File → Global Configuration → API → Settings → Enable ActiveX and Socket Clients).</p>
                   <p>⚠️ <strong>Docker users:</strong> the backend runs inside a container, so <code className="bg-black/30 px-1 rounded">127.0.0.1</code> refers to the container, not your PC. Use <code className="bg-black/30 px-1 rounded">host.docker.internal</code> (Windows/Mac) or your machine's LAN IP (e.g. <code className="bg-black/30 px-1 rounded">192.168.x.x</code>) as the TWS Host instead.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label>TWS Host</Label>
-                    <Input value={ibkr.host} onChange={e => setIbkr({...ibkr, host: e.target.value})}
-                      placeholder="127.0.0.1" className="bg-[#0a0e1a] border-[#1e2a3a]" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Port</Label>
-                    <Input type="number" value={ibkr.port} onChange={e => setIbkr({...ibkr, port: +e.target.value})}
-                      placeholder="7497" className="bg-[#0a0e1a] border-[#1e2a3a]" />
-                    <p className="text-xs text-gray-500">Paper: 7497 · Live: 7496</p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Client ID</Label>
-                    <Input type="number" value={ibkr.client_id} onChange={e => setIbkr({...ibkr, client_id: +e.target.value})}
-                      placeholder="1" className="bg-[#0a0e1a] border-[#1e2a3a]" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Account ID</Label>
-                    <Input value={ibkr.account} onChange={e => setIbkr({...ibkr, account: e.target.value})}
-                      placeholder="DU1234567" className="bg-[#0a0e1a] border-[#1e2a3a]" />
-                  </div>
-                </div>
+
+                {/* Paper / Live toggle — switching restores the saved account for that mode */}
                 <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input type="checkbox" checked={ibkr.paper_trading}
-                      onChange={e => setIbkr({...ibkr, paper_trading: e.target.checked})}
+                      onChange={e => {
+                        const isPaper = e.target.checked
+                        // Save current account to the outgoing mode, restore the other mode's account
+                        const updated = {
+                          ...ibkr,
+                          paper_trading: isPaper,
+                          paper_account: isPaper ? ibkr.paper_account : ibkr.account,
+                          live_account:  isPaper ? ibkr.account : ibkr.live_account,
+                          account: isPaper ? ibkr.paper_account : ibkr.live_account,
+                          port: isPaper ? 7497 : 7496,
+                        }
+                        setIbkr(updated)
+                      }}
                       className="w-4 h-4 rounded" />
                     <span className="text-sm text-gray-300">Paper Trading Mode</span>
                   </label>
@@ -238,6 +229,50 @@ export default function SettingsPage() {
                     : <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">⚠ Live Trading</span>
                   }
                 </div>
+
+                {/* Contextual account hint */}
+                <div className={`text-xs rounded-lg px-3 py-2 ${ibkr.paper_trading ? 'bg-yellow-500/10 text-yellow-300 border border-yellow-500/20' : 'bg-red-500/10 text-red-300 border border-red-500/20'}`}>
+                  {ibkr.paper_trading
+                    ? <>📄 <strong>Paper account</strong> — enter your IBKR paper account ID (starts with <code className="bg-black/30 px-1 rounded">DU</code>, e.g. <code className="bg-black/30 px-1 rounded">DU1234567</code>). Port is auto-set to 7497.</>
+                    : <>🔴 <strong>Live account</strong> — enter your real IBKR account ID (starts with <code className="bg-black/30 px-1 rounded">U</code>, e.g. <code className="bg-black/30 px-1 rounded">U1234567</code>). Port is auto-set to 7496. Real capital at risk.</>
+                  }
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>TWS Host</Label>
+                    <Input value={ibkr.host} onChange={e => setIbkr({...ibkr, host: e.target.value})}
+                      placeholder="host.docker.internal" className="bg-[#0a0e1a] border-[#1e2a3a]" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Port</Label>
+                    <Input type="number" value={ibkr.port} onChange={e => setIbkr({...ibkr, port: +e.target.value})}
+                      placeholder={ibkr.paper_trading ? '7497' : '7496'} className="bg-[#0a0e1a] border-[#1e2a3a]" />
+                    <p className="text-xs text-gray-500">Paper: 7497 · Live: 7496</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Client ID</Label>
+                    <Input type="number" value={ibkr.client_id || ''} onChange={e => setIbkr({...ibkr, client_id: +e.target.value})}
+                      placeholder="1" className="bg-[#0a0e1a] border-[#1e2a3a]" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{ibkr.paper_trading ? 'Paper Account ID' : 'Live Account ID'}</Label>
+                    <Input
+                      value={ibkr.account}
+                      onChange={e => {
+                        const v = e.target.value
+                        setIbkr(prev => ({
+                          ...prev,
+                          account: v,
+                          paper_account: prev.paper_trading ? v : prev.paper_account,
+                          live_account:  prev.paper_trading ? prev.live_account : v,
+                        }))
+                      }}
+                      placeholder={ibkr.paper_trading ? 'DU1234567' : 'U1234567'}
+                      className="bg-[#0a0e1a] border-[#1e2a3a]" />
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap items-center gap-3">
                   <Button onClick={handleSaveIBKR} disabled={savingIbkr}>
                     {savingIbkr ? 'Saving...' : 'Save IBKR Credentials'}

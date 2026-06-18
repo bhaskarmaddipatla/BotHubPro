@@ -25,8 +25,10 @@ class IBKRCredentials(BaseModel):
     host: str = "host.docker.internal"
     port: int = 7497
     client_id: int = 1
-    account: str
+    account: str = ""
     paper_trading: bool = True
+    paper_account: str = ""   # stored separately so switching modes restores the right ID
+    live_account: str = ""
 
 
 class BrokerKeyCreate(BaseModel):
@@ -93,7 +95,6 @@ async def get_ibkr_credentials(current_user: User = Depends(get_current_active_u
     if not key:
         return None
     creds = json.loads(simple_decrypt(key.encrypted_key))
-    creds.pop("account", None)
     return creds
 
 
