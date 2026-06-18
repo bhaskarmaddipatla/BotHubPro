@@ -246,7 +246,7 @@ export default function LiveBotPage() {
   // Fetch saved IBKR credentials to determine paper vs live mode, and user role
   useEffect(() => {
     import('@/lib/api').then(({ api }) => {
-      api.get('/api/v1/broker-credentials/ibkr').then(r => {
+      api.get('/api/v1/broker/ibkr').then(r => {
         setIbkrPaper(r.data?.paper_trading !== false)
       }).catch(() => {})
       api.get('/api/v1/users/me').then(r => {
