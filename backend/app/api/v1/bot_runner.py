@@ -192,6 +192,16 @@ async def start_bot(
         if not ok:
             raise HTTPException(status_code=500, detail=f"Failed to sync bot from GitHub: {msg}")
 
+        # Some bot runners look for config at a hardcoded relative path
+        # (e.g. bots/shared/config.json) rather than reading --config arg.
+        # Write the platform config there as well so both patterns work.
+        for candidate in [
+            bot_files_dir / "bots" / "shared" / "config.json",
+            bot_files_dir / "shared" / "config.json",
+        ]:
+            if candidate.parent.exists():
+                candidate.write_text(json.dumps(config, indent=2))
+
     # When the repo uses a shared engine (bots/engine/runner.py imports bots.*),
     # git_path="bots" copies the whole bots/ package and entry_file="engine/runner.py".
     # Resolve the actual script path relative to bot_files_dir.
