@@ -223,6 +223,8 @@ export default function LiveBotPage() {
   const [diagReport, setDiagReport] = useState<any>(null)
   const [diagLoading, setDiagLoading] = useState(false)
   const [ibkrPaper, setIbkrPaper] = useState<boolean>(true)  // reflects saved IBKR credentials
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [diagnoseMode, setDiagnoseMode] = useState(false)
 
   const runDiagnose = async () => {
     setDiagLoading(true)
@@ -241,13 +243,17 @@ export default function LiveBotPage() {
   // Persist params to localStorage so they survive navigation
   const storageKey = botId ? `bot_params_${botId}` : null
 
-  // Fetch saved IBKR credentials to determine paper vs live mode
+  // Fetch saved IBKR credentials to determine paper vs live mode, and user role
   useEffect(() => {
     import('@/lib/api').then(({ api }) => {
       api.get('/api/v1/broker-credentials/ibkr').then(r => {
         setIbkrPaper(r.data?.paper_trading !== false)
-      }).catch(() => {})  // no creds saved yet — default to paper
+      }).catch(() => {})
+      api.get('/api/v1/users/me').then(r => {
+        setIsAdmin(r.data?.role === 'admin')
+      }).catch(() => {})
     })
+    setDiagnoseMode(localStorage.getItem('diagnose_mode') === 'true')
   }, [])
 
   useEffect(() => {
@@ -346,6 +352,7 @@ export default function LiveBotPage() {
   const category = bot?.category || 'credit_spread'
   const paramDefs = PARAM_DEFS[category] || PARAM_DEFS.credit_spread
   const isPaper = ibkrPaper  // driven by saved IBKR credentials, not bot config
+  const showDebug = isAdmin || diagnoseMode  // admins always; subscribers only in diagnose mode
 
   return (
     <div className="flex flex-col h-full">
@@ -403,11 +410,13 @@ export default function LiveBotPage() {
                   Start Bot
                 </Button>
               )}
-              <Button size="sm" variant="outline" className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 h-7 text-xs"
-                onClick={runDiagnose} disabled={diagLoading}>
-                {diagLoading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
-                Diagnose
-              </Button>
+              {showDebug && (
+                <Button size="sm" variant="outline" className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 h-7 text-xs"
+                  onClick={runDiagnose} disabled={diagLoading}>
+                  {diagLoading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                  Diagnose
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -643,8 +652,10 @@ export default function LiveBotPage() {
                 )}
               </CardContent>
             </Card>
-            {/* Process Log — live terminal */}
-            <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} />
+            {/* Process Log — visible to admins and users with diagnose mode enabled */}
+            {showDebug && (
+              <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} />
+            )}
           </div>
         </div>
       </div>

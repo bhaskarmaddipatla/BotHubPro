@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { userApi, authApi, api, telegramApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { User, Lock, Shield, Plug, CheckCircle, XCircle, Loader2, Bell, Send, Unlink } from 'lucide-react'
+import { User, Lock, Shield, Plug, CheckCircle, XCircle, Loader2, Bell, Send, Unlink, Bug } from 'lucide-react'
 
 type BrokerTab = 'ibkr' | 'moomoo'
 
@@ -25,6 +25,11 @@ export default function SettingsPage() {
   const [telegramCode, setTelegramCode] = useState<any>(null)
   const [telegramLoading, setTelegramLoading] = useState(false)
   const [connecting, setConnecting] = useState(false)
+
+  // Diagnose mode — stored in localStorage, visible to non-admins for self-service troubleshooting
+  const [diagnoseMode, setDiagnoseMode] = useState(false)
+  useEffect(() => { setDiagnoseMode(localStorage.getItem('diagnose_mode') === 'true') }, [])
+  const toggleDiagnoseMode = (v: boolean) => { setDiagnoseMode(v); localStorage.setItem('diagnose_mode', String(v)) }
 
   // Broker tab
   const [brokerTab, setBrokerTab] = useState<BrokerTab>('ibkr')
@@ -416,6 +421,25 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Diagnose Mode — only shown to non-admins; admins always have debug tools */}
+        {user?.role !== 'admin' && (
+          <Card className="bg-[#0f1623] border-[#1e2a3a]">
+            <CardHeader><CardTitle className="text-base text-white flex items-center gap-2"><Bug size={16} /> Developer / Troubleshooting</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-gray-400">Enable Diagnose Mode to show the <strong className="text-gray-300">Diagnose</strong> button and <strong className="text-gray-300">Process Log</strong> on the Live Bot Monitor. Useful when troubleshooting connectivity issues with your broker.</p>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <div
+                  onClick={() => toggleDiagnoseMode(!diagnoseMode)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${diagnoseMode ? 'bg-blue-600' : 'bg-gray-700'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${diagnoseMode ? 'translate-x-5' : 'translate-x-0'}`} />
+                </div>
+                <span className="text-sm text-gray-300">{diagnoseMode ? 'Diagnose Mode ON — debug tools visible on bot monitor' : 'Diagnose Mode OFF — debug tools hidden'}</span>
+              </label>
+            </CardContent>
+          </Card>
+        )}
 
       </div>
     </div>
