@@ -113,8 +113,10 @@ services:
       TRADING_MODE: ${IBKR_TRADING_MODE:-paper}   # paper | live
       READ_ONLY_API: ${IBKR_READ_ONLY:-no}
       VNC_SERVER_PASSWORD: ${IBKR_VNC_PASSWORD:-changeme}
-      # Accept all incoming API connections from within the Docker network
       TWOFA_TIMEOUT_ACTION: restart
+      # Allow connections from the entire Docker bridge network (172.16.0.0/12)
+      # Without this, IB Gateway only trusts 127.0.0.1 and rejects backend container
+      TRUSTED_IPS: 127.0.0.1,172.16.0.0/12,10.0.0.0/8
     ports:
       - "127.0.0.1:4002:4002"   # paper trading API
       - "127.0.0.1:4003:4003"   # live trading API
