@@ -18,8 +18,10 @@ const STRATEGY_OPTIONS = [
   { value: 'butterfly',     label: 'SPX Butterfly (0DTE)' },
 ]
 
+type ParamDef = { key: string; label: string; type: string; step: number; min: number; max: number }
+
 // Strategy → which param fields to show
-const STRATEGY_PARAMS: Record<string, typeof PARAM_DEFS> = {
+const STRATEGY_PARAMS: Record<string, ParamDef[]> = {
   credit_spread: [
     { key: 'contracts',          label: 'Contracts',         type: 'number', step: 1,    min: 1,    max: 50   },
     { key: 'spread_width',       label: 'Spread Width (pts)',type: 'number', step: 1,    min: 1,    max: 100  },
