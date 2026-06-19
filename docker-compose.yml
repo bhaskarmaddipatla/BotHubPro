@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bothubpro"]
       interval: 10s
@@ -20,7 +20,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -34,7 +34,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql://bothubpro:bothubpro@db:5432/bothubpro
       REDIS_URL: redis://redis:6379/0
@@ -96,7 +96,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     environment:
       REDIS_URL: redis://redis:6379/0
     depends_on:
@@ -116,9 +116,9 @@ services:
       # Accept all incoming API connections from within the Docker network
       TWOFA_TIMEOUT_ACTION: restart
     ports:
-      - "4002:4002"   # paper trading API
-      - "4003:4003"   # live trading API
-      - "5900:5900"   # VNC — view IB Gateway UI in browser for troubleshooting
+      - "127.0.0.1:4002:4002"   # paper trading API
+      - "127.0.0.1:4003:4003"   # live trading API
+      - "127.0.0.1:5900:5900"   # VNC — SSH tunnel to access (ssh -L 5900:localhost:5900 user@server)
     volumes:
       - ib_gateway_data:/home/ibgateway/ibgateway
     healthcheck:
@@ -136,7 +136,7 @@ services:
         # Pass build-time arg so Next.js bakes the correct URL into the bundle
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
 
