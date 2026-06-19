@@ -70,7 +70,7 @@ services:
     volumes:
       - ib_gateway_data:/home/ibgateway/ibgateway
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 4002 || nc -z localhost 4003"]
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/localhost/4002' || bash -c 'cat < /dev/null > /dev/tcp/localhost/4003'"]
       interval: 30s
       timeout: 10s
       retries: 5
