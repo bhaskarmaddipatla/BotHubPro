@@ -85,6 +85,12 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: Production build (catches NEXT_PUBLIC_ and type errors missed by tsc alone)
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: npm run build
+
   build-and-push:
     name: Build & Push Docker Images
     runs-on: ubuntu-latest
@@ -117,6 +123,11 @@ jobs:
           context: ./frontend
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:latest
+          # NEXT_PUBLIC_* vars must be baked into the bundle at build time.
+          # Set NEXT_PUBLIC_API_URL as a GitHub Actions variable (not secret)
+          # under Settings → Actions → Variables so CI can pass it here.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
 
   deploy:
     name: Deploy to Production

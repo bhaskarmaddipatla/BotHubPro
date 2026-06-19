@@ -56,8 +56,8 @@ services:
 
   frontend:
     image: ghcr.io/${GITHUB_REPOSITORY}/frontend:${TAG:-latest}
-    environment:
-      NEXT_PUBLIC_API_URL: ${API_URL}
+    # NEXT_PUBLIC_* vars are baked at build time in CI (see .github/workflows/ci.yml
+    # build-args). Runtime environment vars have no effect on Next.js bundles.
     restart: unless-stopped
 
   nginx:
