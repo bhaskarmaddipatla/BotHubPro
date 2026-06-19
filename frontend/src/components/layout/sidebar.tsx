@@ -16,7 +16,7 @@ const navItems = [
   { href: '/dashboard/performance', label: 'Performance', icon: LineChart },
   { href: '/dashboard/backtests', label: 'Backtests', icon: FlaskConical },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
-  { href: '/marketplace', label: 'Marketplace', icon: Store },
+  { href: '/dashboard/marketplace', label: 'Marketplace', icon: Store },
   { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ]
