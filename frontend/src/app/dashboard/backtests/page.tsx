@@ -11,26 +11,62 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { formatCurrency } from '@/lib/utils'
 import { FlaskConical, ChevronDown, ChevronUp } from 'lucide-react'
 
-const PARAM_DEFS = [
-  { key: 'contracts', label: 'Contracts', type: 'number', step: 1, min: 1, max: 50 },
-  { key: 'spread_width', label: 'Spread Width ($)', type: 'number', step: 1, min: 1, max: 50 },
-  { key: 'short_strike_delta', label: 'Short Strike Delta', type: 'number', step: 0.01, min: 0.05, max: 0.50 },
-  { key: 'take_profit_pct', label: 'Take Profit (%)', type: 'number', step: 5, min: 10, max: 100 },
-  { key: 'max_loss_per_trade', label: 'Max Loss / Trade ($)', type: 'number', step: 50, min: 100, max: 5000 },
+const STRATEGY_OPTIONS = [
+  { value: 'credit_spread', label: 'SPX Credit Spread (0DTE)' },
+  { value: 'iron_condor',   label: 'SPX Iron Condor (0DTE)' },
+  { value: 'iron_fly',      label: 'SPX Iron Fly (0DTE)' },
+  { value: 'butterfly',     label: 'SPX Butterfly (0DTE)' },
 ]
 
-const DEFAULT_PARAMS: Record<string, number> = {
-  contracts: 1,
-  spread_width: 5,
-  short_strike_delta: 0.20,
-  take_profit_pct: 50,
-  max_loss_per_trade: 500,
+// Strategy → which param fields to show
+const STRATEGY_PARAMS: Record<string, typeof PARAM_DEFS> = {
+  credit_spread: [
+    { key: 'contracts',          label: 'Contracts',         type: 'number', step: 1,    min: 1,    max: 50   },
+    { key: 'spread_width',       label: 'Spread Width (pts)',type: 'number', step: 1,    min: 1,    max: 100  },
+    { key: 'short_strike_delta', label: 'Short Strike Delta',type: 'number', step: 0.01, min: 0.05, max: 0.50 },
+    { key: 'take_profit_pct',    label: 'Take Profit (%)',   type: 'number', step: 5,    min: 10,   max: 100  },
+    { key: 'max_loss_per_trade', label: 'Max Loss / Trade ($)',type:'number', step: 50,   min: 100,  max: 5000 },
+  ],
+  iron_condor: [
+    { key: 'contracts',        label: 'Contracts',       type: 'number', step: 1,    min: 1,    max: 50   },
+    { key: 'wing_width',       label: 'Wing Width (pts)',type: 'number', step: 5,    min: 5,    max: 100  },
+    { key: 'target_delta',     label: 'Short Delta',     type: 'number', step: 0.01, min: 0.05, max: 0.30 },
+    { key: 'profit_target_pct',label: 'Take Profit (%)', type: 'number', step: 5,    min: 10,   max: 75   },
+    { key: 'stop_loss_pct',    label: 'Stop Loss (%)',   type: 'number', step: 25,   min: 100,  max: 300  },
+  ],
+  iron_fly: [
+    { key: 'contracts',        label: 'Contracts',       type: 'number', step: 1,    min: 1,    max: 50   },
+    { key: 'wing_width',       label: 'Wing Width (pts)',type: 'number', step: 5,    min: 10,   max: 100  },
+    { key: 'profit_target_pct',label: 'Take Profit (%)', type: 'number', step: 5,    min: 10,   max: 50   },
+    { key: 'stop_loss_pct',    label: 'Stop Loss (%)',   type: 'number', step: 25,   min: 100,  max: 300  },
+  ],
+  butterfly: [
+    { key: 'contracts',        label: 'Contracts',       type: 'number', step: 1,    min: 1,    max: 20   },
+    { key: 'profit_target_pct',label: 'Take Profit (%)', type: 'number', step: 10,   min: 50,   max: 200  },
+    { key: 'stop_loss_pct',    label: 'Stop Loss (%)',   type: 'number', step: 10,   min: 50,   max: 100  },
+  ],
+}
+
+// Derive strategy from bot category
+const categoryToStrategy: Record<string, string> = {
+  credit_spread: 'credit_spread',
+  iron_condor:   'iron_condor',
+  iron_fly:      'iron_fly',
+  butterfly:     'butterfly',
+}
+
+const DEFAULT_PARAMS_BY_STRATEGY: Record<string, Record<string, number>> = {
+  credit_spread: { contracts: 1, spread_width: 5, short_strike_delta: 0.20, take_profit_pct: 50, max_loss_per_trade: 500 },
+  iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
+  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150 },
+  butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
 }
 
 export default function BacktestsPage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [bots, setBots] = useState<any[]>([])
+  const [selectedBot, setSelectedBot] = useState<any>(null)
   const [showAllTrades, setShowAllTrades] = useState(false)
   const [form, setForm] = useState({
     bot_id: '',
@@ -39,22 +75,39 @@ export default function BacktestsPage() {
     end_date: '2023-12-31',
     initial_capital: 10000,
   })
-  const [tradeParams, setTradeParams] = useState<Record<string, number>>({ ...DEFAULT_PARAMS })
+  const [tradeParams, setTradeParams] = useState<Record<string, number>>(
+    { ...DEFAULT_PARAMS_BY_STRATEGY.credit_spread }
+  )
 
   useEffect(() => {
     botsApi.list().then(r => setBots(r.data || [])).catch(() => {})
   }, [])
 
   const handleBotChange = (botId: string) => {
+    if (!botId) {
+      setSelectedBot(null)
+      setForm(f => ({ ...f, bot_id: '', strategy: 'credit_spread' }))
+      setTradeParams({ ...DEFAULT_PARAMS_BY_STRATEGY.credit_spread })
+      return
+    }
     const bot = bots.find((b: any) => b.id === botId)
+    setSelectedBot(bot)
+    const strat = categoryToStrategy[bot?.category] || 'credit_spread'
     const cfg = bot?.configuration || {}
-    const merged: Record<string, number> = { ...DEFAULT_PARAMS }
-    for (const p of PARAM_DEFS) {
-      if (cfg[p.key] !== undefined) merged[p.key] = Number(cfg[p.key])
+    const defaults = DEFAULT_PARAMS_BY_STRATEGY[strat] || DEFAULT_PARAMS_BY_STRATEGY.credit_spread
+    const merged: Record<string, number> = { ...defaults }
+    // Overlay bot's own saved config values
+    for (const key of Object.keys(defaults)) {
+      if (cfg[key] !== undefined) merged[key] = Number(cfg[key])
     }
     setTradeParams(merged)
-    const strat = cfg.category === 'iron_condor' ? 'iron_condor' : 'credit_spread'
     setForm(f => ({ ...f, bot_id: botId, strategy: strat }))
+  }
+
+  const handleStrategyChange = (strat: string) => {
+    setSelectedBot(null)
+    setForm(f => ({ ...f, bot_id: '', strategy: strat }))
+    setTradeParams({ ...(DEFAULT_PARAMS_BY_STRATEGY[strat] || DEFAULT_PARAMS_BY_STRATEGY.credit_spread) })
   }
 
   const handleRun = async () => {
@@ -89,26 +142,29 @@ export default function BacktestsPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <Label className="text-gray-400 text-xs">Bot (optional)</Label>
+                <Label className="text-gray-400 text-xs">Bot — auto-fills strategy & parameters</Label>
                 <select
                   value={form.bot_id}
                   onChange={e => handleBotChange(e.target.value)}
                   className="w-full bg-[#0a0e1a] border border-[#1e2a3a] rounded-md px-3 py-2 text-sm text-white"
                 >
-                  <option value="">— No bot selected —</option>
+                  <option value="">— Run without a bot —</option>
                   {bots.map((b: any) => (
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1">
-                <Label className="text-gray-400 text-xs">Strategy</Label>
+                <Label className="text-gray-400 text-xs">Strategy{selectedBot ? ' (set by bot)' : ''}</Label>
                 <select
                   value={form.strategy}
-                  onChange={e => setForm(f => ({ ...f, strategy: e.target.value }))}
-                  className="w-full bg-[#0a0e1a] border border-[#1e2a3a] rounded-md px-3 py-2 text-sm text-white"
+                  onChange={e => handleStrategyChange(e.target.value)}
+                  disabled={!!selectedBot}
+                  className={`w-full bg-[#0a0e1a] border border-[#1e2a3a] rounded-md px-3 py-2 text-sm text-white ${selectedBot ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
-                  <option value="credit_spread">SPX Credit Spread (0DTE)</option>
+                  {STRATEGY_OPTIONS.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-1">
@@ -133,9 +189,16 @@ export default function BacktestsPage() {
 
             {/* Trade params */}
             <div className="border-t border-[#1e2a3a] pt-4">
-              <p className="text-xs text-gray-400 mb-3">Trade Parameters</p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-gray-400">Trade Parameters</p>
+                {selectedBot && (
+                  <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                    Loaded from <strong>{selectedBot.name}</strong> — edit below to override for this backtest
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                {PARAM_DEFS.map(p => (
+                {(STRATEGY_PARAMS[form.strategy] || STRATEGY_PARAMS.credit_spread).map(p => (
                   <div key={p.key} className="space-y-1">
                     <Label className="text-gray-400 text-xs">{p.label}</Label>
                     <Input
@@ -143,7 +206,7 @@ export default function BacktestsPage() {
                       step={p.step}
                       min={p.min}
                       max={p.max}
-                      value={tradeParams[p.key]}
+                      value={tradeParams[p.key] ?? ''}
                       onChange={e => setTradeParams(prev => ({ ...prev, [p.key]: +e.target.value }))}
                       className="bg-[#0a0e1a] border-[#1e2a3a] text-white"
                     />
