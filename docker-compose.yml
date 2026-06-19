@@ -104,6 +104,30 @@ services:
       - worker
     command: celery -A app.workers.celery_app flower --port=5555
 
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${IBKR_USERNAME:-}
+      TWS_PASSWORD: ${IBKR_PASSWORD:-}
+      TRADING_MODE: ${IBKR_TRADING_MODE:-paper}   # paper | live
+      READ_ONLY_API: ${IBKR_READ_ONLY:-no}
+      VNC_SERVER_PASSWORD: ${IBKR_VNC_PASSWORD:-changeme}
+      # Accept all incoming API connections from within the Docker network
+      TWOFA_TIMEOUT_ACTION: restart
+    ports:
+      - "4002:4002"   # paper trading API
+      - "4003:4003"   # live trading API
+      - "5900:5900"   # VNC — view IB Gateway UI in browser for troubleshooting
+    volumes:
+      - ib_gateway_data:/home/ibgateway/ibgateway
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4002 || nc -z localhost 4003"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   frontend:
     build:
       context: ./frontend
@@ -121,3 +145,4 @@ volumes:
   redis_data:
   bot_files:
   trade_data:
+  ib_gateway_data:

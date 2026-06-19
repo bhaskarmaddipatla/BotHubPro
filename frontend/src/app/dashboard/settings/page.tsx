@@ -200,8 +200,9 @@ export default function SettingsPage() {
             {brokerTab === 'ibkr' && (
               <div className="space-y-4">
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300 space-y-1">
-                  <p>📋 TWS / IB Gateway must be running on your local machine with <strong>API connections enabled</strong> (File → Global Configuration → API → Settings → Enable ActiveX and Socket Clients).</p>
-                  <p>⚠️ <strong>Docker users:</strong> the backend runs inside a container, so <code className="bg-black/30 px-1 rounded">127.0.0.1</code> refers to the container, not your PC. Use <code className="bg-black/30 px-1 rounded">host.docker.internal</code> (Windows/Mac) or your machine's LAN IP (e.g. <code className="bg-black/30 px-1 rounded">192.168.x.x</code>) as the TWS Host instead.</p>
+                  <p>📋 TWS / IB Gateway must be reachable from the bot runner. Two options:</p>
+                  <p>🖥️ <strong>Local TWS (Windows/Mac):</strong> TWS running on your PC → use <code className="bg-black/30 px-1 rounded">host.docker.internal</code> as host, port <code className="bg-black/30 px-1 rounded">7497</code> (paper) or <code className="bg-black/30 px-1 rounded">7496</code> (live). Enable ActiveX and Socket Clients in TWS API settings.</p>
+                  <p>🖥️ <strong>Server-side IB Gateway (recommended for production):</strong> If IB Gateway is running as a Docker service on this server, use <code className="bg-black/30 px-1 rounded">ib-gateway</code> as host, port <code className="bg-black/30 px-1 rounded">4002</code> (paper) or <code className="bg-black/30 px-1 rounded">4003</code> (live).</p>
                 </div>
 
                 {/* Paper / Live toggle — switching restores the saved account for that mode */}

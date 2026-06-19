@@ -54,6 +54,28 @@ services:
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=8
 
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${IBKR_USERNAME}
+      TWS_PASSWORD: ${IBKR_PASSWORD}
+      TRADING_MODE: ${IBKR_TRADING_MODE:-paper}
+      READ_ONLY_API: ${IBKR_READ_ONLY:-no}
+      VNC_SERVER_PASSWORD: ${IBKR_VNC_PASSWORD}
+      TWOFA_TIMEOUT_ACTION: restart
+    ports:
+      - "4002:4002"
+      - "4003:4003"
+    volumes:
+      - ib_gateway_data:/home/ibgateway/ibgateway
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4002 || nc -z localhost 4003"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   frontend:
     image: ghcr.io/${GITHUB_REPOSITORY}/frontend:${TAG:-latest}
     # NEXT_PUBLIC_* vars are baked at build time in CI (see .github/workflows/ci.yml
@@ -76,3 +98,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ib_gateway_data:
