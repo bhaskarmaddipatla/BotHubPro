@@ -41,8 +41,8 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
 
   useEffect(() => {
     fetch(`${apiBase}/api/v1/bots/${botId}/schedule`, { credentials: 'include' })
-      .then(r => r.json())
-      .then(data => setSchedule(data))
+      .then(r => { if (r.ok) return r.json(); throw new Error('fetch failed') })
+      .then(data => { if (data && typeof data === 'object') setSchedule(data) })
       .catch(() => {})
   }, [botId, apiBase])
 
@@ -65,6 +65,8 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
         body: JSON.stringify(schedule),
       })
       if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000) }
+    } catch {
+      // silently ignore network errors
     } finally {
       setSaving(false)
     }
