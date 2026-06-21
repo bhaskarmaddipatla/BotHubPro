@@ -399,27 +399,29 @@ export default function LiveBotPage() {
 
         {/* ── Compact bot info header ── */}
         {bot && (
-          <div className="bg-[#0f1623] border border-[#1e2a3a] rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-center gap-2 flex-wrap min-w-0">
-              <div className="flex flex-col min-w-0">
-                <span className="text-white font-semibold text-base truncate">{bot.name}</span>
-                {bot.description && (
-                  <span className="text-xs text-gray-500 truncate max-w-sm">{bot.description}</span>
+          <div className="bg-[#0f1623] border border-[#1e2a3a] rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            {/* Left: name, description, badges */}
+            <div className="flex flex-col gap-1 min-w-0">
+              <span className="text-white font-semibold text-base leading-tight">{bot.name}</span>
+              {bot.description && (
+                <span className="text-xs text-gray-500 leading-snug line-clamp-1">{bot.description}</span>
+              )}
+              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${riskColors[bot.risk_level] || riskColors.medium}`}>
+                  {bot.risk_level} risk
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                  {categoryLabels[bot.category] || bot.category}
+                </span>
+                {bot.configuration?.symbol && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-mono">
+                    {bot.configuration.symbol}
+                  </span>
                 )}
               </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${riskColors[bot.risk_level] || riskColors.medium}`}>
-                {bot.risk_level} risk
-              </span>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 shrink-0">
-                {categoryLabels[bot.category] || bot.category}
-              </span>
-              {bot.configuration?.symbol && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-mono shrink-0">
-                  {bot.configuration.symbol}
-                </span>
-              )}
             </div>
 
+            {/* Right: status + actions */}
             <div className="flex items-center gap-2 shrink-0">
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
                 running ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
