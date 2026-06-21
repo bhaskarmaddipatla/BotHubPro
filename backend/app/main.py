@@ -8,6 +8,7 @@ from app.models import user, subscription, bot, execution, notification, api_key
 from app.api.v1 import auth, users, bots, executions, subscriptions, analytics, admin, notifications, marketplace, backtests
 from app.api.v1 import broker_credentials, bot_runner
 from app.api.v1 import telegram as telegram_router
+from app.api.v1 import bot_schedule as bot_schedule_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ app.include_router(backtests.router, prefix="/api/v1/backtests", tags=["Backtest
 app.include_router(broker_credentials.router, prefix="/api/v1/broker", tags=["Broker"])
 app.include_router(bot_runner.router, prefix="/api/v1/bot-runner", tags=["bot-runner"])
 app.include_router(telegram_router.router, prefix="/api/v1/telegram", tags=["Telegram"])
+app.include_router(bot_schedule_router.router, prefix="/api/v1", tags=["bot-schedule"])
 
 
 @app.get("/health")

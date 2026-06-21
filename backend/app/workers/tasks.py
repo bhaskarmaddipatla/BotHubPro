@@ -139,3 +139,47 @@ def execute_bot_task(self, execution_id: str, bot_id: str, user_id: str):
         raise
     finally:
         db.close()
+
+
+@celery_app.task(name="check_bot_schedules")
+def check_bot_schedules():
+    """Run every minute via Celery Beat. Start/stop bots per their schedule."""
+    try:
+        import pytz
+        from datetime import datetime
+        from app.core.database import SessionLocal
+        from app.models.bot_schedule import BotSchedule
+        import httpx
+
+        db = SessionLocal()
+        try:
+            schedules = db.query(BotSchedule).filter(BotSchedule.enabled == True).all()
+            for sched in schedules:
+                try:
+                    tz = pytz.timezone(sched.timezone)
+                    now = datetime.now(tz)
+                    day = now.weekday()  # 0=Mon
+                    current_time = now.strftime("%H:%M")
+                    if day not in sched.days_of_week:
+                        continue
+                    # Start bot at start_time
+                    if current_time == sched.start_time:
+                        httpx.post(
+                            f"http://localhost:8000/api/v1/bot-runner/{sched.bot_id}/start",
+                            json={},
+                            headers={"X-Schedule-Token": os.environ.get("SECRET_KEY", "")},
+                            timeout=10
+                        )
+                    # Stop bot at stop_time
+                    elif current_time == sched.stop_time:
+                        httpx.post(
+                            f"http://localhost:8000/api/v1/bot-runner/{sched.bot_id}/stop",
+                            headers={"X-Schedule-Token": os.environ.get("SECRET_KEY", "")},
+                            timeout=10
+                        )
+                except Exception as e:
+                    logger.error(f"Schedule check error for bot {sched.bot_id}: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"check_bot_schedules failed: {e}")

@@ -51,3 +51,4 @@ class Bot(Base):
 
     user = relationship("User", back_populates="bots")
     executions = relationship("Execution", back_populates="bot")
+    schedule = relationship("BotSchedule", back_populates="bot", uselist=False)

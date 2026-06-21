@@ -91,6 +91,23 @@ services:
       - trade_data:/data
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
 
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://bothubpro:bothubpro@db:5432/bothubpro
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-BotHubProDevKey2024SecretMin32Ch}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: celery -A app.workers.celery_app beat --loglevel=info
+
   flower:
     build:
       context: ./backend

@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button'
 import { botRunnerApi, botsApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Play, Square, Loader2, Info, AlertTriangle, X } from 'lucide-react'
+import BotScheduleCard from '@/components/bots/BotScheduleCard'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface Position {
   symbol?: string; position?: string | number; qty?: string | number
@@ -549,6 +552,11 @@ export default function LiveBotPage() {
                   )}
                 </CardContent>
               </Card>
+            )}
+
+            {/* Bot Schedule */}
+            {botId && (
+              <BotScheduleCard botId={botId} apiBase={API_BASE} />
             )}
           </div>
 

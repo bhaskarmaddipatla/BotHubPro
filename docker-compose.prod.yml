@@ -54,6 +54,18 @@ services:
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=8
 
+  beat:
+    image: ghcr.io/${GITHUB_REPOSITORY}/backend:${TAG:-latest}
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app beat --loglevel=info
+
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     restart: unless-stopped

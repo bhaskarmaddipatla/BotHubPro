@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from app.core.config import settings
 
 celery_app = Celery(
@@ -18,3 +19,10 @@ celery_app.conf.update(
     task_soft_time_limit=300,
     task_time_limit=600,
 )
+
+celery_app.conf.beat_schedule = {
+    "check-bot-schedules": {
+        "task": "check_bot_schedules",
+        "schedule": 60.0,  # every 60 seconds
+    },
+}
