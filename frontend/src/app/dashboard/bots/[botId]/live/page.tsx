@@ -398,7 +398,12 @@ export default function LiveBotPage() {
         {bot && (
           <div className="bg-[#0f1623] border border-[#1e2a3a] rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-2 flex-wrap min-w-0">
-              <span className="text-white font-semibold text-base truncate">{bot.name}</span>
+              <div className="flex flex-col min-w-0">
+                <span className="text-white font-semibold text-base truncate">{bot.name}</span>
+                {bot.description && (
+                  <span className="text-xs text-gray-500 truncate max-w-sm">{bot.description}</span>
+                )}
+              </div>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${riskColors[bot.risk_level] || riskColors.medium}`}>
                 {bot.risk_level} risk
               </span>
@@ -410,9 +415,6 @@ export default function LiveBotPage() {
                   {bot.configuration.symbol}
                 </span>
               )}
-              <span title={bot.description} className="text-gray-600 hover:text-gray-400 cursor-help shrink-0">
-                <Info size={13} />
-              </span>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -565,19 +567,6 @@ export default function LiveBotPage() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Bot info expandable */}
-            {bot?.description && (
-              <Card className="bg-[#0f1623] border-[#1e2a3a]">
-                <CardContent className="px-4 py-3">
-                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-1.5">What this bot does</p>
-                  <p className="text-xs text-gray-400 leading-relaxed">{bot.description}</p>
-                  {bot.schedule_cron && (
-                    <p className="text-xs text-gray-600 font-mono mt-2">Schedule: {bot.schedule_cron}</p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
 
             {/* Bot Schedule */}
             {botId && (
