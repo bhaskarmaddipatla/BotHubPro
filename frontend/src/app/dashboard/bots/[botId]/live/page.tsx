@@ -147,9 +147,21 @@ function BotProcessLog({ lines, running, show, onToggle }: {
   lines: string[]; running: boolean; show: boolean; onToggle: () => void
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const userScrolledUp = useRef(false)
+
+  // Only auto-scroll if user hasn't scrolled up
   useEffect(() => {
-    if (show && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+    if (!show || userScrolledUp.current) return
+    if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' })
   }, [lines, show])
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+    userScrolledUp.current = !atBottom
+  }
 
   return (
     <Card className="bg-[#0f1623] border-[#1e2a3a]">
@@ -164,14 +176,27 @@ function BotProcessLog({ lines, running, show, onToggle }: {
               <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{lines.length} lines</span>
             )}
           </span>
-          <button onClick={onToggle} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-            {show ? 'Hide' : 'Show'}
-          </button>
+          <div className="flex items-center gap-3">
+            {userScrolledUp.current && (
+              <button
+                onClick={() => {
+                  userScrolledUp.current = false
+                  bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+                }}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                ↓ Latest
+              </button>
+            )}
+            <button onClick={onToggle} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+              {show ? 'Hide' : 'Show'}
+            </button>
+          </div>
         </CardTitle>
       </CardHeader>
       {show && (
         <CardContent className="px-0 pb-2">
-          <div className="bg-[#060a12] mx-3 rounded-lg p-3 h-56 overflow-y-auto font-mono text-xs space-y-0.5">
+          <div ref={scrollRef} onScroll={handleScroll} className="bg-[#060a12] mx-3 rounded-lg p-3 h-56 overflow-y-auto font-mono text-xs space-y-0.5">
             {lines.length === 0 ? (
               <p className="text-gray-600 text-center py-4">
                 {running
