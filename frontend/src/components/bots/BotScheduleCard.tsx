@@ -42,17 +42,28 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
   useEffect(() => {
     fetch(`${apiBase}/api/v1/bots/${botId}/schedule`, { credentials: 'include' })
       .then(r => { if (r.ok) return r.json(); throw new Error('fetch failed') })
-      .then(data => { if (data && typeof data === 'object') setSchedule(data) })
+      .then(data => {
+        if (data && typeof data === 'object') {
+          setSchedule(s => ({
+            ...s,
+            ...data,
+            days_of_week: Array.isArray(data.days_of_week) ? data.days_of_week : s.days_of_week,
+          }))
+        }
+      })
       .catch(() => {})
   }, [botId, apiBase])
 
   const toggleDay = (day: number) => {
-    setSchedule(s => ({
-      ...s,
-      days_of_week: s.days_of_week.includes(day)
-        ? s.days_of_week.filter(d => d !== day)
-        : [...s.days_of_week, day].sort(),
-    }))
+    setSchedule(s => {
+      const days = Array.isArray(s.days_of_week) ? s.days_of_week : []
+      return {
+        ...s,
+        days_of_week: days.includes(day)
+          ? days.filter(d => d !== day)
+          : [...days, day].sort(),
+      }
+    })
   }
 
   const save = async () => {
@@ -107,7 +118,7 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
                     type="button"
                     onClick={() => toggleDay(i)}
                     className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${
-                      schedule.days_of_week.includes(i)
+                      (Array.isArray(schedule.days_of_week) ? schedule.days_of_week : []).includes(i)
                         ? 'bg-blue-600 text-white border-blue-600'
                         : 'bg-transparent text-gray-400 border-gray-600 hover:border-gray-400'
                     }`}
