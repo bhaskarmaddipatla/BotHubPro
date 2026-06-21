@@ -143,24 +143,28 @@ function ConfirmStartModal({ bot, params, paramDefs, onConfirm, onCancel, loadin
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-function BotProcessLog({ lines, running, show, onToggle }: {
-  lines: string[]; running: boolean; show: boolean; onToggle: () => void
+function BotProcessLog({ lines, running, show, onToggle, onClear }: {
+  lines: string[]; running: boolean; show: boolean; onToggle: () => void; onClear: () => void
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const userScrolledUp = useRef(false)
+  const [scrolledUp, setScrolledUp] = useState(false)
 
   // Only auto-scroll if user hasn't scrolled up
   useEffect(() => {
-    if (!show || userScrolledUp.current) return
-    if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' })
-  }, [lines, show])
+    if (!show || scrolledUp) return
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [lines, show, scrolledUp])
 
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el) return
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-    userScrolledUp.current = !atBottom
+    setScrolledUp(el.scrollHeight - el.scrollTop - el.clientHeight > 40)
+  }
+
+  const jumpToBottom = () => {
+    setScrolledUp(false)
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   return (
@@ -177,15 +181,14 @@ function BotProcessLog({ lines, running, show, onToggle }: {
             )}
           </span>
           <div className="flex items-center gap-3">
-            {userScrolledUp.current && (
-              <button
-                onClick={() => {
-                  userScrolledUp.current = false
-                  bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-                }}
-                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-              >
+            {scrolledUp && (
+              <button onClick={jumpToBottom} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
                 ↓ Latest
+              </button>
+            )}
+            {lines.length > 0 && (
+              <button onClick={onClear} className="text-xs text-gray-500 hover:text-red-400 transition-colors">
+                Clear
               </button>
             )}
             <button onClick={onToggle} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
@@ -676,7 +679,7 @@ export default function LiveBotPage() {
             </Card>
             {/* Process Log — visible to admins and users with diagnose mode enabled */}
             {showDebug && (
-              <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} />
+              <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} onClear={() => setBotLog([])} />
             )}
           </div>
         </div>
