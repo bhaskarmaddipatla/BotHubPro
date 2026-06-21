@@ -146,14 +146,14 @@ function ConfirmStartModal({ bot, params, paramDefs, onConfirm, onCancel, loadin
 function BotProcessLog({ lines, running, show, onToggle, onClear }: {
   lines: string[]; running: boolean; show: boolean; onToggle: () => void; onClear: () => void
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scrolledUp, setScrolledUp] = useState(false)
 
-  // Only auto-scroll if user hasn't scrolled up
+  // Auto-scroll to bottom only when user is already at bottom
   useEffect(() => {
     if (!show || scrolledUp) return
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [lines, show, scrolledUp])
 
   const handleScroll = () => {
@@ -164,7 +164,8 @@ function BotProcessLog({ lines, running, show, onToggle, onClear }: {
 
   const jumpToBottom = () => {
     setScrolledUp(false)
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }
 
   return (
@@ -225,7 +226,6 @@ function BotProcessLog({ lines, running, show, onToggle, onClear }: {
                     </div>
                   )
                 })}
-                <div ref={bottomRef} />
               </>
             )}
           </div>
@@ -245,6 +245,7 @@ export default function LiveBotPage() {
   const [positions, setPositions] = useState<Position[]>([])
   const [tradeLog, setTradeLog] = useState<TradeEntry[]>([])
   const [botLog, setBotLog] = useState<string[]>([])
+  const logClearedRef = useRef(false)
   const [showLog, setShowLog] = useState(true)  // default open
   const [actionLoading, setActionLoading] = useState(false)
   const [tradeParams, setTradeParams] = useState<Record<string, number>>({})
@@ -335,7 +336,7 @@ export default function LiveBotPage() {
   }, [botId])
 
   const fetchBotLog = useCallback(async () => {
-    if (!botId) return
+    if (!botId || logClearedRef.current) return
     try {
       const { api } = await import('@/lib/api')
       const r = await api.get(`/api/v1/bot-runner/${botId}/logs?lines=200`)
@@ -681,7 +682,7 @@ export default function LiveBotPage() {
             </Card>
             {/* Process Log — visible to admins and users with diagnose mode enabled */}
             {showDebug && (
-              <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} onClear={() => setBotLog([])} />
+              <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} onClear={() => { logClearedRef.current = true; setBotLog([]) }} />
             )}
           </div>
         </div>
