@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
 from app.core.database import get_db
-from app.core.auth import get_current_active_user
+from app.api.deps import get_current_active_user
 from app.models.user import User
 from app.models.bot import Bot
 from app.models.bot_schedule import BotSchedule
