@@ -167,7 +167,7 @@ async def start_bot(
         "ibkr_client_id": creds.get("client_id", 1),
         "ibkr_account": creds.get("account", ""),
         "paper_trading": creds.get("paper_trading", True),
-        "ibkr_allow_trading": not creds.get("paper_trading", True),
+        "ibkr_allow_trading": True,
         "data_dir": str(data_path),
         # Merge bot base config then user-supplied trade params on top
         **(bot.configuration or {}),
