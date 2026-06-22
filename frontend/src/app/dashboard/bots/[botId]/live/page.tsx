@@ -598,47 +598,59 @@ export default function LiveBotPage() {
               <CardHeader className="pb-1 pt-3 px-4">
                 <CardTitle className="text-sm text-white flex items-center gap-2">
                   Open Positions
-                  {positions.length > 0 && (
-                    <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">{positions.length}</span>
+                  {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).length > 0 && (
+                    <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">
+                      {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).length}
+                    </span>
                   )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-0 pb-2">
-                {positions.length === 0 ? (
+                {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-5">No open positions</p>
                 ) : (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-gray-500 border-b border-[#1e2a3a]">
-                        <th className="text-left px-4 py-1.5">Symbol</th>
-                        <th className="text-right px-4 py-1.5">Qty</th>
-                        <th className="text-right px-4 py-1.5">Avg Cost</th>
-                        <th className="text-right px-4 py-1.5">Mkt Value</th>
-                        <th className="text-right px-4 py-1.5">Unreal PnL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {positions.map((pos, i) => {
-                        const rawPnl = pos.unrealPnL ?? pos.unreal_pnl ?? pos.unrealizedPNL ?? pos.unrealized_pnl
-                        const pnl = Number(rawPnl ?? 0)
-                        const sym = String(pos.localSymbol ?? pos.local_symbol ?? pos.symbol ?? '—')
-                        const qty = String(pos.position ?? pos.qty ?? pos.pos ?? '—')
-                        const cost = String(pos.avgCost ?? pos.avg_cost ?? pos.averageCost ?? '—')
-                        const mkt = String(pos.mktValue ?? pos.mkt_value ?? pos.marketValue ?? '—')
-                        return (
-                          <tr key={i} className="border-b border-[#1e2a3a]/40 text-gray-200">
-                            <td className="px-4 py-1.5 font-mono text-xs">{sym}</td>
-                            <td className="px-4 py-1.5 text-right">{qty}</td>
-                            <td className="px-4 py-1.5 text-right">{cost}</td>
-                            <td className="px-4 py-1.5 text-right">{mkt}</td>
-                            <td className={`px-4 py-1.5 text-right font-medium ${rawPnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                              {rawPnl !== undefined ? String(rawPnl) : '—'}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                  <div className="overflow-auto max-h-48">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-[#0f1623]">
+                        <tr className="text-gray-500 border-b border-[#1e2a3a]">
+                          <th className="text-left px-4 py-1.5">Instrument</th>
+                          <th className="text-right px-3 py-1.5">Qty</th>
+                          <th className="text-right px-3 py-1.5">Trade Px</th>
+                          <th className="text-right px-3 py-1.5">Last</th>
+                          <th className="text-right px-3 py-1.5">Mkt Val</th>
+                          <th className="text-right px-3 py-1.5">Open P&L</th>
+                          <th className="text-right px-3 py-1.5">Day P&L</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).map((pos, i) => {
+                          const rawPnl = pos.unrealPnL ?? pos.unreal_pnl ?? pos.unrealizedPNL ?? pos.unrealized_pnl
+                          const dayPnl = pos.dayPnL ?? pos.day_pnl ?? pos.realizedPNL ?? pos.realized_pnl
+                          const pnl = Number(rawPnl ?? 0)
+                          const sym = String(pos.localSymbol ?? pos.local_symbol ?? pos.symbol ?? '—')
+                          const qty = Number(pos.position ?? pos.qty ?? pos.pos ?? 0)
+                          const tradePx = pos.avgCost ?? pos.avg_cost ?? pos.averageCost
+                          const lastPx = pos.lastPrice ?? pos.last_price ?? pos.marketPrice ?? pos.market_price
+                          const mktVal = pos.mktValue ?? pos.mkt_value ?? pos.marketValue
+                          return (
+                            <tr key={i} className="border-b border-[#1e2a3a]/40 hover:bg-[#1e2a3a]/30">
+                              <td className="px-4 py-1.5 font-mono text-gray-200 whitespace-nowrap">{sym}</td>
+                              <td className={`px-3 py-1.5 text-right font-medium ${qty > 0 ? 'text-blue-400' : 'text-orange-400'}`}>{qty}</td>
+                              <td className="px-3 py-1.5 text-right text-gray-300">{tradePx !== undefined ? Number(tradePx).toFixed(2) : '—'}</td>
+                              <td className="px-3 py-1.5 text-right text-gray-300">{lastPx !== undefined ? Number(lastPx).toFixed(2) : '—'}</td>
+                              <td className="px-3 py-1.5 text-right text-gray-300">{mktVal !== undefined ? `$${Number(mktVal).toFixed(0)}` : '—'}</td>
+                              <td className={`px-3 py-1.5 text-right font-medium ${rawPnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
+                                {rawPnl !== undefined ? `$${pnl.toFixed(2)}` : '—'}
+                              </td>
+                              <td className={`px-3 py-1.5 text-right font-medium ${dayPnl !== undefined ? (Number(dayPnl) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
+                                {dayPnl !== undefined ? `$${Number(dayPnl).toFixed(2)}` : '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -648,46 +660,55 @@ export default function LiveBotPage() {
               <CardHeader className="pb-1 pt-3 px-4">
                 <CardTitle className="text-sm text-white flex items-center gap-2">
                   Trade Log
-                  {tradeLog.length > 0 && (
-                    <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{tradeLog.length}</span>
+                  {tradeLog.filter(t => t.action).length > 0 && (
+                    <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{tradeLog.filter(t => t.action).length}</span>
                   )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-0 pb-2">
-                {tradeLog.length === 0 ? (
+                {tradeLog.filter(t => t.action).length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-5">No trades yet today</p>
                 ) : (
-                  <div className="overflow-auto max-h-64">
+                  <div className="overflow-auto max-h-72">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-[#0f1623]">
                         <tr className="text-gray-500 border-b border-[#1e2a3a]">
-                          <th className="text-left px-4 py-1.5">Time (ET)</th>
-                          <th className="text-left px-4 py-1.5">Action</th>
-                          <th className="text-left px-4 py-1.5">Symbol</th>
-                          <th className="text-right px-4 py-1.5">Qty</th>
-                          <th className="text-right px-4 py-1.5">Price</th>
-                          <th className="text-right px-4 py-1.5">PnL</th>
+                          <th className="text-left px-4 py-1.5 whitespace-nowrap">Fill Time (ET)</th>
+                          <th className="text-left px-3 py-1.5">Instrument</th>
+                          <th className="text-left px-3 py-1.5">Status</th>
+                          <th className="text-left px-3 py-1.5">Side</th>
+                          <th className="text-right px-3 py-1.5">Qty</th>
+                          <th className="text-right px-3 py-1.5">Fill Px</th>
+                          <th className="text-right px-3 py-1.5">P&L</th>
                         </tr>
                       </thead>
                       <tbody>
                         {tradeLog.filter(t => t.action).map((t, i) => {
                           const pnl = Number(t.pnl ?? 0)
                           const action = String(t.action ?? '').toUpperCase()
-                          const isEntry = action.includes('ENTRY') || action.includes('BUY')
-                          const price = t.price ?? t.filled_price ?? t.credit
+                          const isEntry = action.includes('ENTRY') || action === 'BUY' || action === 'SELL TO OPEN'
+                          const status = String(t.status ?? 'Filled')
+                          const statusColor = status.toLowerCase() === 'filled' ? 'text-green-400'
+                            : status.toLowerCase().includes('work') || status.toLowerCase() === 'submitted' ? 'text-yellow-400'
+                            : status.toLowerCase().includes('cancel') ? 'text-gray-500'
+                            : 'text-gray-400'
+                          const price = t.filled_price ?? t.price ?? t.credit
+                          const instrument = t.instrument ?? t.description ?? t.symbol ?? 'SPX'
+                          const side = isEntry ? 'Sell to Open' : 'Buy to Close'
                           return (
-                            <tr key={i} className="border-b border-[#1e2a3a]/40 text-gray-200">
+                            <tr key={i} className="border-b border-[#1e2a3a]/40 hover:bg-[#1e2a3a]/30 text-gray-200">
                               <td className="px-4 py-1.5 text-gray-400 whitespace-nowrap">{fmtTime(String(t.time ?? t.timestamp ?? ''))}</td>
-                              <td className="px-4 py-1.5">
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isEntry ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                                  {String(t.action ?? '—')}
+                              <td className="px-3 py-1.5 font-mono whitespace-nowrap">{String(instrument)}</td>
+                              <td className={`px-3 py-1.5 font-medium ${statusColor}`}>{status}</td>
+                              <td className="px-3 py-1.5">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isEntry ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                  {String(t.side ?? side)}
                                 </span>
                               </td>
-                              <td className="px-4 py-1.5 font-mono">{String(t.symbol ?? '—')}</td>
-                              <td className="px-4 py-1.5 text-right">{t.qty !== undefined ? String(t.qty) : '—'}</td>
-                              <td className="px-4 py-1.5 text-right">{price !== undefined ? String(price) : '—'}</td>
-                              <td className={`px-4 py-1.5 text-right font-medium ${t.pnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                                {t.pnl !== undefined ? `$${Number(t.pnl).toFixed(2)}` : '—'}
+                              <td className="px-3 py-1.5 text-right">{t.qty !== undefined ? String(t.qty) : '—'}</td>
+                              <td className="px-3 py-1.5 text-right">{price !== undefined ? Number(price).toFixed(2) : '—'}</td>
+                              <td className={`px-3 py-1.5 text-right font-medium ${t.pnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
+                                {t.pnl !== undefined ? `$${pnl.toFixed(2)}` : '—'}
                               </td>
                             </tr>
                           )
