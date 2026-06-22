@@ -8,6 +8,7 @@ import { botRunnerApi, botsApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Play, Square, Loader2, Info, AlertTriangle, X } from 'lucide-react'
 import BotScheduleCard from '@/components/bots/BotScheduleCard'
+import BotTradeLog from '@/components/bots/BotTradeLog'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -666,57 +667,7 @@ export default function LiveBotPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-0 pb-2">
-                {tradeLog.filter(t => t.action).length === 0 ? (
-                  <p className="text-gray-600 text-xs text-center py-5">No trades yet today</p>
-                ) : (
-                  <div className="overflow-auto max-h-72">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-[#0f1623]">
-                        <tr className="text-gray-500 border-b border-[#1e2a3a]">
-                          <th className="text-left px-4 py-1.5 whitespace-nowrap">Fill Time (ET)</th>
-                          <th className="text-left px-3 py-1.5">Instrument</th>
-                          <th className="text-left px-3 py-1.5">Status</th>
-                          <th className="text-left px-3 py-1.5">Side</th>
-                          <th className="text-right px-3 py-1.5">Qty</th>
-                          <th className="text-right px-3 py-1.5">Fill Px</th>
-                          <th className="text-right px-3 py-1.5">P&L</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tradeLog.filter(t => t.action).map((t, i) => {
-                          const pnl = Number(t.pnl ?? 0)
-                          const action = String(t.action ?? '').toUpperCase()
-                          const isEntry = action.includes('ENTRY') || action === 'BUY' || action === 'SELL TO OPEN'
-                          const status = String(t.status ?? 'Filled')
-                          const statusColor = status.toLowerCase() === 'filled' ? 'text-green-400'
-                            : status.toLowerCase().includes('work') || status.toLowerCase() === 'submitted' ? 'text-yellow-400'
-                            : status.toLowerCase().includes('cancel') ? 'text-gray-500'
-                            : 'text-gray-400'
-                          const price = t.filled_price ?? t.price ?? t.credit
-                          const instrument = t.instrument ?? t.description ?? t.symbol ?? 'SPX'
-                          const side = isEntry ? 'Sell to Open' : 'Buy to Close'
-                          return (
-                            <tr key={i} className="border-b border-[#1e2a3a]/40 hover:bg-[#1e2a3a]/30 text-gray-200">
-                              <td className="px-4 py-1.5 text-gray-400 whitespace-nowrap">{fmtTime(String(t.time ?? t.timestamp ?? ''))}</td>
-                              <td className="px-3 py-1.5 font-mono whitespace-nowrap">{String(instrument)}</td>
-                              <td className={`px-3 py-1.5 font-medium ${statusColor}`}>{status}</td>
-                              <td className="px-3 py-1.5">
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isEntry ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                  {String(t.side ?? side)}
-                                </span>
-                              </td>
-                              <td className="px-3 py-1.5 text-right">{t.qty !== undefined ? String(t.qty) : '—'}</td>
-                              <td className="px-3 py-1.5 text-right">{price !== undefined ? Number(price).toFixed(2) : '—'}</td>
-                              <td className={`px-3 py-1.5 text-right font-medium ${t.pnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                                {t.pnl !== undefined ? `$${pnl.toFixed(2)}` : '—'}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                <BotTradeLog trades={tradeLog} />
               </CardContent>
             </Card>
             {/* Process Log — visible to admins and users with diagnose mode enabled */}
