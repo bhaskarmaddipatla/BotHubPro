@@ -222,21 +222,27 @@ function BotProcessLog({ lines, running, show, onToggle, onClear }: {
             ) : (
               <>
                 {lines.map((line, i) => {
-                  const isError = /error|exception|traceback|critical|failed to/i.test(line)
-                  const isWarn  = /warn|warning|skip|no trade/i.test(line)
-                  const isOk    = /connected|placed|filled|profit|success|entry|exit|open|close/i.test(line)
-                  const isInfo  = /scanning|checking|vwap|gex|vix|delta|spread|price|bid|ask|signal/i.test(line)
-                  return (
-                    <div key={i} className={
-                      isError ? 'text-red-400' :
-                      isWarn  ? 'text-yellow-300' :
-                      isOk    ? 'text-green-400' :
-                      isInfo  ? 'text-blue-300' :
-                      'text-gray-400'
-                    }>
-                      {line || ' '}
-                    </div>
-                  )
+                  const isSep     = /^━+$/.test(line.trim())
+                  const isHeader  = /^\s*(ORDER CONTEXT|ENTRY CONTEXT)/i.test(line)
+                  const isSkip    = /⛔|SKIPPED/i.test(line)
+                  const isError   = /error|exception|traceback|critical|failed to/i.test(line)
+                  const isWarn    = /warn|warning/i.test(line)
+                  const isEntry   = /entry time|short leg|long leg|filled credit|order id|entry type|limit price|max risk|expiration|quantity/i.test(line)
+                  const isExit    = /exit time|realized p&l|hold time/i.test(line)
+                  const isContext = /spx:|bias:|confidence:|recommendation:|vix:|readiness:|dte:|vix9d/i.test(line)
+                  const isOk      = /connected|placed|filled|profit|success/i.test(line)
+
+                  const cls = isSep     ? 'text-[#1e3a5a] select-none' :
+                              isHeader  ? 'text-cyan-400 font-bold mt-1' :
+                              isSkip    ? 'text-orange-400' :
+                              isError   ? 'text-red-400' :
+                              isWarn    ? 'text-yellow-300' :
+                              isEntry   ? 'text-emerald-300' :
+                              isExit    ? 'text-blue-300' :
+                              isContext ? 'text-sky-300' :
+                              isOk      ? 'text-green-400' :
+                              'text-gray-400'
+                  return <div key={i} className={cls}>{line || ' '}</div>
                 })}
               </>
             )}
