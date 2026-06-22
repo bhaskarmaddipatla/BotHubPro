@@ -522,11 +522,11 @@ export default function LiveBotPage() {
         )}
 
         {/* ── Two-column layout: params | positions+log ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-3 items-stretch">
 
           {/* Left: Trade Parameters */}
-          <div className="space-y-3">
-            <Card className="bg-[#0f1623] border-[#1e2a3a]">
+          <div className="flex flex-col gap-3">
+            <Card className="bg-[#0f1623] border-[#1e2a3a] flex-1">
               <CardHeader className="pb-1 pt-3 px-4">
                 <CardTitle className="text-sm text-white">Your Trade Parameters</CardTitle>
                 <p className="text-xs text-gray-500 mt-0.5">
@@ -593,9 +593,9 @@ export default function LiveBotPage() {
           </div>
 
           {/* Right: Positions + Trade Log */}
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3">
             {/* Open Positions */}
-            <Card className="bg-[#0f1623] border-[#1e2a3a]">
+            <Card className="bg-[#0f1623] border-[#1e2a3a] flex flex-col flex-1">
               <CardHeader className="pb-1 pt-3 px-4">
                 <CardTitle className="text-sm text-white flex items-center gap-2">
                   Open Positions
@@ -606,7 +606,7 @@ export default function LiveBotPage() {
                   )}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-0 pb-2">
+              <CardContent className="px-0 pb-2 flex-1 flex flex-col">
                 {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-5">No open positions</p>
                 ) : (
@@ -657,8 +657,8 @@ export default function LiveBotPage() {
             </Card>
 
             {/* Trade Log */}
-            <Card className="bg-[#0f1623] border-[#1e2a3a]">
-              <CardHeader className="pb-1 pt-3 px-4">
+            <Card className="bg-[#0f1623] border-[#1e2a3a] flex flex-col flex-[2]">
+              <CardHeader className="pb-1 pt-3 px-4 shrink-0">
                 <CardTitle className="text-sm text-white flex items-center gap-2">
                   Trade Log
                   {tradeLog.filter(t => t.action).length > 0 && (
@@ -666,13 +666,15 @@ export default function LiveBotPage() {
                   )}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-0 pb-2">
+              <CardContent className="px-0 pb-2 flex-1 min-h-0">
                 <BotTradeLog trades={tradeLog} />
               </CardContent>
             </Card>
             {/* Process Log — visible to admins and users with diagnose mode enabled */}
             {showDebug && (
-              <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} onClear={() => { logClearedRef.current = true; setBotLog([]) }} />
+              <div className="flex-1">
+                <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} onClear={() => { logClearedRef.current = true; setBotLog([]) }} />
+              </div>
             )}
           </div>
         </div>
