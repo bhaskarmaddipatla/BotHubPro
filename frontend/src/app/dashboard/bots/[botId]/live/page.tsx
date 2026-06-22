@@ -12,16 +12,27 @@ import BotScheduleCard from '@/components/bots/BotScheduleCard'
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface Position {
-  symbol?: string; position?: string | number; qty?: string | number
-  avgCost?: string | number; avg_cost?: string | number
-  mktValue?: string | number; mkt_value?: string | number
-  unrealPnL?: string | number; unreal_pnl?: string | number
+  symbol?: string; localSymbol?: string; local_symbol?: string
+  position?: string | number; qty?: string | number; pos?: string | number
+  avgCost?: string | number; avg_cost?: string | number; averageCost?: string | number
+  mktValue?: string | number; mkt_value?: string | number; marketValue?: string | number
+  unrealPnL?: string | number; unreal_pnl?: string | number; unrealizedPNL?: string | number; unrealized_pnl?: string | number
   [key: string]: unknown
 }
 interface TradeEntry {
   time?: string; timestamp?: string; action?: string; symbol?: string
   qty?: string | number; price?: string | number; pnl?: string | number
+  credit?: string | number; filled_price?: string | number
   [key: string]: unknown
+}
+
+function fmtTime(raw?: string): string {
+  if (!raw) return '—'
+  try {
+    const d = new Date(raw)
+    if (isNaN(d.getTime())) return raw.length > 19 ? raw.slice(11, 19) : raw
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', hour12: false })
+  } catch { return raw }
 }
 
 const riskColors: Record<string, string> = {
@@ -608,15 +619,20 @@ export default function LiveBotPage() {
                     </thead>
                     <tbody>
                       {positions.map((pos, i) => {
-                        const pnl = Number(pos.unrealPnL ?? pos.unreal_pnl ?? 0)
+                        const rawPnl = pos.unrealPnL ?? pos.unreal_pnl ?? pos.unrealizedPNL ?? pos.unrealized_pnl
+                        const pnl = Number(rawPnl ?? 0)
+                        const sym = String(pos.localSymbol ?? pos.local_symbol ?? pos.symbol ?? '—')
+                        const qty = String(pos.position ?? pos.qty ?? pos.pos ?? '—')
+                        const cost = String(pos.avgCost ?? pos.avg_cost ?? pos.averageCost ?? '—')
+                        const mkt = String(pos.mktValue ?? pos.mkt_value ?? pos.marketValue ?? '—')
                         return (
                           <tr key={i} className="border-b border-[#1e2a3a]/40 text-gray-200">
-                            <td className="px-4 py-1.5 font-mono">{String(pos.symbol ?? '—')}</td>
-                            <td className="px-4 py-1.5 text-right">{String(pos.qty ?? '—')}</td>
-                            <td className="px-4 py-1.5 text-right">{String(pos.avgCost ?? pos.avg_cost ?? '—')}</td>
-                            <td className="px-4 py-1.5 text-right">{String(pos.mktValue ?? pos.mkt_value ?? '—')}</td>
-                            <td className={`px-4 py-1.5 text-right font-medium ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {String(pos.unrealPnL ?? pos.unreal_pnl ?? '—')}
+                            <td className="px-4 py-1.5 font-mono text-xs">{sym}</td>
+                            <td className="px-4 py-1.5 text-right">{qty}</td>
+                            <td className="px-4 py-1.5 text-right">{cost}</td>
+                            <td className="px-4 py-1.5 text-right">{mkt}</td>
+                            <td className={`px-4 py-1.5 text-right font-medium ${rawPnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
+                              {rawPnl !== undefined ? String(rawPnl) : '—'}
                             </td>
                           </tr>
                         )
@@ -641,11 +657,11 @@ export default function LiveBotPage() {
                 {tradeLog.length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-5">No trades yet today</p>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-auto max-h-64">
                     <table className="w-full text-xs">
-                      <thead>
+                      <thead className="sticky top-0 bg-[#0f1623]">
                         <tr className="text-gray-500 border-b border-[#1e2a3a]">
-                          <th className="text-left px-4 py-1.5">Time</th>
+                          <th className="text-left px-4 py-1.5">Time (ET)</th>
                           <th className="text-left px-4 py-1.5">Action</th>
                           <th className="text-left px-4 py-1.5">Symbol</th>
                           <th className="text-right px-4 py-1.5">Qty</th>
@@ -654,22 +670,24 @@ export default function LiveBotPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {tradeLog.map((t, i) => {
+                        {tradeLog.filter(t => t.action).map((t, i) => {
                           const pnl = Number(t.pnl ?? 0)
-                          const isBuy = String(t.action).toUpperCase().includes('BUY')
+                          const action = String(t.action ?? '').toUpperCase()
+                          const isEntry = action.includes('ENTRY') || action.includes('BUY')
+                          const price = t.price ?? t.filled_price ?? t.credit
                           return (
                             <tr key={i} className="border-b border-[#1e2a3a]/40 text-gray-200">
-                              <td className="px-4 py-1.5 text-gray-400">{String(t.time ?? t.timestamp ?? '—')}</td>
+                              <td className="px-4 py-1.5 text-gray-400 whitespace-nowrap">{fmtTime(String(t.time ?? t.timestamp ?? ''))}</td>
                               <td className="px-4 py-1.5">
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isEntry ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                                   {String(t.action ?? '—')}
                                 </span>
                               </td>
                               <td className="px-4 py-1.5 font-mono">{String(t.symbol ?? '—')}</td>
-                              <td className="px-4 py-1.5 text-right">{String(t.qty ?? '—')}</td>
-                              <td className="px-4 py-1.5 text-right">{String(t.price ?? '—')}</td>
+                              <td className="px-4 py-1.5 text-right">{t.qty !== undefined ? String(t.qty) : '—'}</td>
+                              <td className="px-4 py-1.5 text-right">{price !== undefined ? String(price) : '—'}</td>
                               <td className={`px-4 py-1.5 text-right font-medium ${t.pnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                                {t.pnl !== undefined ? String(t.pnl) : '—'}
+                                {t.pnl !== undefined ? `$${Number(t.pnl).toFixed(2)}` : '—'}
                               </td>
                             </tr>
                           )
