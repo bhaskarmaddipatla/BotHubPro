@@ -8,7 +8,7 @@ import { botRunnerApi, botsApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Play, Square, Loader2, Info, AlertTriangle, X } from 'lucide-react'
 import BotScheduleCard from '@/components/bots/BotScheduleCard'
-import BotTradeLog from '@/components/bots/BotTradeLog'
+import BotTradeLog, { countTradeGroups } from '@/components/bots/BotTradeLog'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -32,7 +32,7 @@ function fmtTime(raw?: string): string {
   try {
     const d = new Date(raw)
     if (isNaN(d.getTime())) return raw.length > 19 ? raw.slice(11, 19) : raw
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', hour12: false })
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', hour12: true })
   } catch { return raw }
 }
 
@@ -667,8 +667,8 @@ export default function LiveBotPage() {
               <CardHeader className="pb-1 pt-3 px-4 shrink-0">
                 <CardTitle className="text-sm text-white flex items-center gap-2">
                   Trade Log
-                  {tradeLog.filter(t => t.action).length > 0 && (
-                    <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{tradeLog.filter(t => t.action).length}</span>
+                  {countTradeGroups(tradeLog) > 0 && (
+                    <span className="text-xs bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded-full">{countTradeGroups(tradeLog)}</span>
                   )}
                 </CardTitle>
               </CardHeader>

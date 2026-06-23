@@ -29,12 +29,21 @@ interface Schedule {
 }
 
 export default function BotScheduleCard({ botId, apiBase }: { botId: string; apiBase: string }) {
-  const [schedule, setSchedule] = useState<Schedule>({
+  const storageKey = `bot_schedule_${botId}`
+  const defaultSchedule: Schedule = {
     days_of_week: [0, 1, 2, 3, 4],
     start_time: '09:30',
     stop_time: '16:00',
     timezone: 'America/New_York',
     enabled: false,
+  }
+
+  const [schedule, setSchedule] = useState<Schedule>(() => {
+    try {
+      const cached = localStorage.getItem(storageKey)
+      if (cached) return { ...defaultSchedule, ...JSON.parse(cached) }
+    } catch {}
+    return defaultSchedule
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -44,11 +53,13 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
       .then(r => { if (r.ok) return r.json(); throw new Error('fetch failed') })
       .then(data => {
         if (data && typeof data === 'object') {
-          setSchedule(s => ({
-            ...s,
+          const merged = {
+            ...defaultSchedule,
             ...data,
-            days_of_week: Array.isArray(data.days_of_week) ? data.days_of_week : s.days_of_week,
-          }))
+            days_of_week: Array.isArray(data.days_of_week) ? data.days_of_week : defaultSchedule.days_of_week,
+          }
+          setSchedule(merged)
+          try { localStorage.setItem(storageKey, JSON.stringify(merged)) } catch {}
         }
       })
       .catch(() => {})
@@ -75,7 +86,10 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(schedule),
       })
-      if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000) }
+      if (res.ok) {
+        setSaved(true); setTimeout(() => setSaved(false), 2000)
+        try { localStorage.setItem(storageKey, JSON.stringify(schedule)) } catch {}
+      }
     } catch {
       // silently ignore network errors
     } finally {

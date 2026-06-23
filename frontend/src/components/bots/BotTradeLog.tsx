@@ -19,7 +19,7 @@ function fmtTime(raw?: string): string {
   try {
     const d = new Date(raw)
     if (isNaN(d.getTime())) return raw.length > 19 ? raw.slice(11, 19) : raw
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', hour12: false })
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', hour12: true })
   } catch { return raw }
 }
 
@@ -125,6 +125,10 @@ function buildGroup(id: string, rows: TradeEntry[]): SpreadGroup {
   const status: SpreadGroup['status'] = exits.length > 0 && !hasFailedExit ? 'closed' : hasFailedExit ? 'failed' : 'open'
 
   return { id, instrument, entries, exits, all: rows, netPnl, status, openTime, closeTime, entryCredit }
+}
+
+export function countTradeGroups(trades: TradeEntry[]): number {
+  return groupTrades(trades).length
 }
 
 export default function BotTradeLog({ trades }: { trades: TradeEntry[] }) {
