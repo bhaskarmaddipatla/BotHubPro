@@ -265,6 +265,7 @@ async def login(request: Request, request_data: LoginRequest, db: Session = Depe
     db.commit()
 
     create_audit_log(db, user.id, "user.login", request)
+    logger.info(f"AUTH LOGIN  user={user.email} ip={request.client.host if request.client else 'unknown'}")
 
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
@@ -272,11 +273,13 @@ async def login(request: Request, request_data: LoginRequest, db: Session = Depe
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(request_data: RefreshTokenRequest):
+async def refresh_token(request: Request, request_data: RefreshTokenRequest):
     payload = decode_token(request_data.refresh_token)
     if not payload or payload.get("type") != "refresh":
+        logger.warning(f"AUTH REFRESH FAILED — invalid/expired refresh token ip={request.client.host if request.client else 'unknown'} (user will be forced to login page)")
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     user_id = payload.get("sub")
+    logger.info(f"AUTH REFRESH OK  user_id={user_id}")
     access_token = create_access_token({"sub": user_id})
     refresh_token = create_refresh_token({"sub": user_id})
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
@@ -326,5 +329,6 @@ async def verify_mfa(
 
 
 @router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user)):
+async def logout(request: Request, current_user: User = Depends(get_current_user)):
+    logger.info(f"AUTH LOGOUT  user={current_user.email} ip={request.client.host if request.client else 'unknown'}")
     return {"message": "Logged out successfully"}

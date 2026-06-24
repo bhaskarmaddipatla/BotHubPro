@@ -21,13 +21,18 @@ let refreshPromise: Promise<string> | null = null
 
 function doRefresh(): Promise<string> {
   if (refreshPromise) return refreshPromise
+  console.log(`[AUTH] Token refresh attempt at ${new Date().toISOString()}`)
   refreshPromise = axios
     .post(`${API_URL}/api/v1/auth/refresh`, { refresh_token: Cookies.get('refresh_token') })
     .then(res => {
+      console.log(`[AUTH] Token refresh SUCCESS at ${new Date().toISOString()}`)
       Cookies.set('access_token', res.data.access_token, { expires: 1 })
+      if (res.data.refresh_token) Cookies.set('refresh_token', res.data.refresh_token, { expires: 7 })
       return res.data.access_token as string
     })
     .catch(err => {
+      const reason = err?.response?.data?.detail || err?.message || 'unknown'
+      console.error(`[AUTH] Token refresh FAILED at ${new Date().toISOString()} — reason: ${reason} — forcing logout`)
       Cookies.remove('access_token')
       Cookies.remove('refresh_token')
       window.location.href = '/auth/login'
@@ -53,6 +58,8 @@ api.interceptors.response.use(
         } catch {
           return Promise.reject(error)
         }
+      } else {
+        console.error(`[AUTH] 401 on ${url} at ${new Date().toISOString()} — no refresh token in cookies, user will see login page`)
       }
     }
     return Promise.reject(error)
