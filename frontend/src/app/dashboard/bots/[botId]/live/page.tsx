@@ -47,7 +47,7 @@ const categoryLabels: Record<string, string> = {
   pmcc: 'PMCC', calendar: 'Calendar', custom: 'Custom',
 }
 
-const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; min?: number; max?: number; step?: number; tooltip: string }[]> = {
+const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; min?: number; max?: number; step?: number; type?: 'time'; tooltip: string }[]> = {
   credit_spread: [
     { key: 'contracts',          label: 'Contracts',       min: 1,    max: 50,    step: 1,    tooltip: 'Number of spread contracts per trade' },
     { key: 'spread_width',       label: 'Spread Width',    unit: 'pts', min: 1,  max: 50,    step: 1,    tooltip: 'Distance between long and short strike in index points' },
@@ -55,6 +55,8 @@ const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; mi
     { key: 'take_profit_pct',    label: 'Take Profit',     unit: '% of credit', min: 10, max: 100, step: 5, tooltip: 'Close when P&L reaches this % of opening credit received' },
     { key: 'max_loss_per_trade', label: 'Max Loss',        unit: '$', min: 100,  max: 10000, step: 50,   tooltip: 'Hard dollar stop — exit if unrealised loss reaches this' },
     { key: 'max_trades_per_day', label: 'Max Trades/Day',  min: 1,    max: 10,   step: 1,    tooltip: 'Maximum new entries allowed per trading day' },
+    { key: 'entry_start',        label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
+    { key: 'entry_end',          label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
   iron_condor: [
     { key: 'contracts',        label: 'Contracts',     min: 1,    max: 50,   step: 1,    tooltip: 'Number of condor contracts per trade' },
@@ -62,17 +64,23 @@ const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; mi
     { key: 'target_delta',     label: 'Short Δ',       min: 0.05, max: 0.30, step: 0.01, tooltip: 'Target delta for both short strikes (call and put sides)' },
     { key: 'profit_target_pct',label: 'Take Profit',   unit: '% of credit', min: 10, max: 75,  step: 5, tooltip: 'Close entire condor when P&L reaches this % of credit received' },
     { key: 'stop_loss_pct',    label: 'Stop Loss',     unit: '% of credit', min: 100, max: 300, step: 25, tooltip: 'Exit when loss = this % of credit received (200 = 2× credit)' },
+    { key: 'entry_start',      label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
+    { key: 'entry_end',        label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
   iron_fly: [
     { key: 'contracts',        label: 'Contracts',   min: 1,    max: 50,   step: 1,    tooltip: 'Number of iron fly contracts per trade' },
     { key: 'wing_width',       label: 'Wing Width',  unit: 'pts', min: 10, max: 100, step: 5,    tooltip: 'Distance from ATM short strike to long wing' },
     { key: 'profit_target_pct',label: 'Take Profit', unit: '% of credit', min: 10, max: 50, step: 5, tooltip: 'Close when P&L reaches this % of opening credit' },
     { key: 'stop_loss_pct',    label: 'Stop Loss',   unit: '% of credit', min: 100, max: 300, step: 25, tooltip: 'Exit when loss = this % of opening credit received' },
+    { key: 'entry_start',      label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
+    { key: 'entry_end',        label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
   butterfly: [
     { key: 'contracts',        label: 'Contracts',   min: 1,  max: 20,  step: 1,  tooltip: 'Number of butterfly contracts per trade' },
     { key: 'profit_target_pct',label: 'Take Profit', unit: '% of debit', min: 50, max: 200, step: 10, tooltip: 'Close when profit = this % of debit paid to enter' },
     { key: 'stop_loss_pct',    label: 'Stop Loss',   unit: '% of debit', min: 50, max: 100, step: 10, tooltip: 'Exit when loss = this % of debit paid' },
+    { key: 'entry_start',      label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
+    { key: 'entry_end',        label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
 }
 
@@ -84,8 +92,8 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
 }
 
 // ── Confirmation modal ────────────────────────────────────────────────────────
-function ConfirmStartModal({ bot, params, paramDefs, onConfirm, onCancel, loading }: {
-  bot: any; params: Record<string, number>
+function ConfirmStartModal({ bot, params, timeParams, paramDefs, onConfirm, onCancel, loading }: {
+  bot: any; params: Record<string, number>; timeParams: Record<string, string>
   paramDefs: typeof PARAM_DEFS[string]
   onConfirm: () => void; onCancel: () => void; loading: boolean
 }) {
@@ -115,7 +123,9 @@ function ConfirmStartModal({ bot, params, paramDefs, onConfirm, onCancel, loadin
               {paramDefs.map(d => (
                 <div key={d.key} className="flex justify-between text-xs">
                   <span className="text-gray-400">{d.label}{d.unit ? ` (${d.unit})` : ''}</span>
-                  <span className="text-white font-medium">{params[d.key] ?? '—'}</span>
+                  <span className="text-white font-medium">
+                    {d.type === 'time' ? (timeParams[d.key] ?? '—') : (params[d.key] ?? '—')}
+                  </span>
                 </div>
               ))}
             </div>
@@ -267,6 +277,7 @@ export default function LiveBotPage() {
   const [showLog, setShowLog] = useState(true)  // default open
   const [actionLoading, setActionLoading] = useState(false)
   const [tradeParams, setTradeParams] = useState<Record<string, number>>({})
+  const [timeParams, setTimeParams] = useState<Record<string, string>>({ entry_start: '09:30', entry_end: '15:45' })
   const [botDefaults, setBotDefaults] = useState<Record<string, number>>({})
   const [showConfirm, setShowConfirm] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
@@ -320,7 +331,14 @@ export default function LiveBotPage() {
       // Load user's last-saved params from localStorage; fall back to bot defaults
       const stored = storageKey ? localStorage.getItem(storageKey) : null
       if (stored) {
-        try { setTradeParams(JSON.parse(stored)); return } catch {}
+        try {
+          const parsed = JSON.parse(stored)
+          // Split time strings out of stored params
+          const { entry_start, entry_end, ...numericParsed } = parsed
+          setTradeParams(numericParsed)
+          setTimeParams(tp => ({ ...tp, ...(entry_start ? { entry_start } : {}), ...(entry_end ? { entry_end } : {}) }))
+          return
+        } catch {}
       }
       setTradeParams(botOriginal)
     }).catch(() => {})
@@ -330,7 +348,16 @@ export default function LiveBotPage() {
   const updateParams = (updater: (p: Record<string, number>) => Record<string, number>) => {
     setTradeParams(prev => {
       const next = updater(prev)
-      if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next))
+      if (storageKey) localStorage.setItem(storageKey, JSON.stringify({ ...next, ...timeParams }))
+      setHasUnsaved(true)
+      return next
+    })
+  }
+
+  const updateTimeParam = (key: string, value: string) => {
+    setTimeParams(prev => {
+      const next = { ...prev, [key]: value }
+      if (storageKey) localStorage.setItem(storageKey, JSON.stringify({ ...tradeParams, ...next }))
       setHasUnsaved(true)
       return next
     })
@@ -380,7 +407,7 @@ export default function LiveBotPage() {
     setActionLoading(true)
     setShowConfirm(false)
     try {
-      const res = await botRunnerApi.startWithParams(botId, tradeParams)
+      const res = await botRunnerApi.startWithParams(botId, { ...tradeParams, ...timeParams })
       setRunning(true); setPid(res.data.pid)
       toast.success(`Bot started (PID ${res.data.pid})`)
     } catch (e: any) {
@@ -409,7 +436,7 @@ export default function LiveBotPage() {
       <Header title="Live Bot Monitor" />
       {showConfirm && bot && (
         <ConfirmStartModal
-          bot={bot} params={tradeParams} paramDefs={paramDefs}
+          bot={bot} params={tradeParams} timeParams={timeParams} paramDefs={paramDefs}
           onConfirm={handleStart} onCancel={() => setShowConfirm(false)} loading={actionLoading}
         />
       )}
@@ -541,9 +568,10 @@ export default function LiveBotPage() {
               </CardHeader>
               <CardContent className="px-4 pb-4 pt-2 space-y-0">
                 {paramDefs.map(def => {
-                  const current = tradeParams[def.key]
-                  const original = botDefaults[def.key]
-                  const changed = original !== undefined && current !== original
+                  const isTime = def.type === 'time'
+                  const current = isTime ? timeParams[def.key] : tradeParams[def.key]
+                  const original = isTime ? undefined : botDefaults[def.key]
+                  const changed = !isTime && original !== undefined && current !== original
                   return (
                     <div key={def.key} className="py-1.5 border-b border-[#1e2a3a]/50 last:border-0">
                       <div className="flex items-center justify-between gap-2">
@@ -560,16 +588,26 @@ export default function LiveBotPage() {
                               was {original}
                             </span>
                           )}
-                          <input
-                            type="number"
-                            min={def.min}
-                            max={def.max}
-                            step={def.step}
-                            value={current ?? ''}
-                            onChange={e => updateParams(p => ({ ...p, [def.key]: parseFloat(e.target.value) || 0 }))}
-                            disabled={running}
-                            className={`w-20 bg-[#0a0e1a] border rounded-md px-2 py-1 text-xs text-white text-left disabled:opacity-40 focus:outline-none focus:border-blue-500/50 ${changed && !running ? 'border-blue-500/40' : 'border-[#1e2a3a]'}`}
-                          />
+                          {isTime ? (
+                            <input
+                              type="time"
+                              value={String(current ?? '')}
+                              onChange={e => updateTimeParam(def.key, e.target.value)}
+                              disabled={running}
+                              className="w-24 bg-[#0a0e1a] border border-[#1e2a3a] rounded-md px-2 py-1 text-xs text-white disabled:opacity-40 focus:outline-none focus:border-blue-500/50"
+                            />
+                          ) : (
+                            <input
+                              type="number"
+                              min={def.min}
+                              max={def.max}
+                              step={def.step}
+                              value={current ?? ''}
+                              onChange={e => updateParams(p => ({ ...p, [def.key]: parseFloat(e.target.value) || 0 }))}
+                              disabled={running}
+                              className={`w-20 bg-[#0a0e1a] border rounded-md px-2 py-1 text-xs text-white text-left disabled:opacity-40 focus:outline-none focus:border-blue-500/50 ${changed && !running ? 'border-blue-500/40' : 'border-[#1e2a3a]'}`}
+                            />
+                          )}
                         </div>
                       </div>
                     </div>
