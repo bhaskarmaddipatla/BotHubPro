@@ -1,10 +1,11 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Calendar, Clock } from 'lucide-react'
+import { Calendar, Clock, CheckCircle2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -28,37 +29,55 @@ interface Schedule {
   enabled: boolean
 }
 
+const DEFAULT_SCHEDULE: Schedule = {
+  days_of_week: [0, 1, 2, 3, 4],
+  start_time: '09:30',
+  stop_time: '16:00',
+  timezone: 'America/New_York',
+  enabled: false,
+}
+
+function scheduleEqual(a: Schedule, b: Schedule): boolean {
+  return (
+    a.enabled === b.enabled &&
+    a.start_time === b.start_time &&
+    a.stop_time === b.stop_time &&
+    a.timezone === b.timezone &&
+    JSON.stringify([...a.days_of_week].sort()) === JSON.stringify([...b.days_of_week].sort())
+  )
+}
+
 export default function BotScheduleCard({ botId, apiBase }: { botId: string; apiBase: string }) {
   const storageKey = `bot_schedule_${botId}`
-  const defaultSchedule: Schedule = {
-    days_of_week: [0, 1, 2, 3, 4],
-    start_time: '09:30',
-    stop_time: '16:00',
-    timezone: 'America/New_York',
-    enabled: false,
-  }
 
   const [schedule, setSchedule] = useState<Schedule>(() => {
     try {
       const cached = localStorage.getItem(storageKey)
-      if (cached) return { ...defaultSchedule, ...JSON.parse(cached) }
+      if (cached) return { ...DEFAULT_SCHEDULE, ...JSON.parse(cached) }
     } catch {}
-    return defaultSchedule
+    return DEFAULT_SCHEDULE
   })
+
+  // Track the last saved/server state to know if there are unsaved changes
+  const [savedSchedule, setSavedSchedule] = useState<Schedule>(schedule)
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
+  const justSavedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isDirty = !scheduleEqual(schedule, savedSchedule)
 
   useEffect(() => {
     fetch(`${apiBase}/api/v1/bots/${botId}/schedule`, { credentials: 'include' })
       .then(r => { if (r.ok) return r.json(); throw new Error('fetch failed') })
       .then(data => {
         if (data && typeof data === 'object') {
-          const merged = {
-            ...defaultSchedule,
+          const merged: Schedule = {
+            ...DEFAULT_SCHEDULE,
             ...data,
-            days_of_week: Array.isArray(data.days_of_week) ? data.days_of_week : defaultSchedule.days_of_week,
+            days_of_week: Array.isArray(data.days_of_week) ? data.days_of_week : DEFAULT_SCHEDULE.days_of_week,
           }
           setSchedule(merged)
+          setSavedSchedule(merged)
           try { localStorage.setItem(storageKey, JSON.stringify(merged)) } catch {}
         }
       })
@@ -87,11 +106,17 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
         body: JSON.stringify(schedule),
       })
       if (res.ok) {
-        setSaved(true); setTimeout(() => setSaved(false), 2000)
+        setSavedSchedule(schedule)
         try { localStorage.setItem(storageKey, JSON.stringify(schedule)) } catch {}
+        setJustSaved(true)
+        toast.success('Schedule saved')
+        if (justSavedTimer.current) clearTimeout(justSavedTimer.current)
+        justSavedTimer.current = setTimeout(() => setJustSaved(false), 3000)
+      } else {
+        toast.error('Failed to save schedule')
       }
     } catch {
-      // silently ignore network errors
+      toast.error('Failed to save schedule')
     } finally {
       setSaving(false)
     }
@@ -106,7 +131,6 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Enable toggle — native checkbox styled as a toggle */}
         <div className="flex items-center justify-between">
           <Label htmlFor="schedule-enabled">Auto-start / Auto-stop</Label>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -187,8 +211,16 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
           </>
         )}
 
-        <Button onClick={save} disabled={saving} className="w-full">
-          {saved ? 'Saved!' : saving ? 'Saving...' : 'Save Schedule'}
+        <Button
+          onClick={save}
+          disabled={saving || (!isDirty && !justSaved)}
+          className={`w-full transition-colors ${justSaved && !isDirty ? 'bg-green-600 hover:bg-green-700' : ''}`}
+        >
+          {justSaved && !isDirty
+            ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Saved</>
+            : saving ? 'Saving...'
+            : isDirty ? 'Save Schedule'
+            : 'Saved'}
         </Button>
       </CardContent>
     </Card>
