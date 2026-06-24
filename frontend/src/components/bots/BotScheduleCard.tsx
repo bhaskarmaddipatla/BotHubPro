@@ -29,6 +29,14 @@ interface Schedule {
   enabled: boolean
 }
 
+function fmt12(time: string): string {
+  const [h, m] = time.split(':').map(Number)
+  if (isNaN(h) || isNaN(m)) return time
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
 const DEFAULT_SCHEDULE: Schedule = {
   days_of_week: [0, 1, 2, 3, 4],
   start_time: '09:30',
@@ -206,7 +214,7 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
             </div>
 
             <p className="text-xs text-gray-500">
-              Bot will auto-start at {schedule.start_time} and stop at {schedule.stop_time} ({schedule.timezone}) on selected days.
+              Bot will auto-start at {fmt12(schedule.start_time)} and stop at {fmt12(schedule.stop_time)} ({schedule.timezone}) on selected days.
             </p>
           </>
         )}
