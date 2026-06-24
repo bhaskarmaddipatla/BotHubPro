@@ -632,7 +632,7 @@ export default function LiveBotPage() {
 
             {/* Bot Schedule */}
             {botId && (
-              <BotScheduleCard botId={botId} apiBase={API_BASE} />
+              <BotScheduleCard botId={botId} />
             )}
           </div>
 

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Calendar, Clock, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { api } from '@/lib/api'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -55,7 +56,7 @@ function scheduleEqual(a: Schedule, b: Schedule): boolean {
   )
 }
 
-export default function BotScheduleCard({ botId, apiBase }: { botId: string; apiBase: string }) {
+export default function BotScheduleCard({ botId }: { botId: string }) {
   const storageKey = `bot_schedule_${botId}`
 
   const [schedule, setSchedule] = useState<Schedule>(() => {
@@ -75,9 +76,9 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
   const isDirty = !scheduleEqual(schedule, savedSchedule)
 
   useEffect(() => {
-    fetch(`${apiBase}/api/v1/bots/${botId}/schedule`, { credentials: 'include' })
-      .then(r => { if (r.ok) return r.json(); throw new Error('fetch failed') })
-      .then(data => {
+    api.get(`/api/v1/bots/${botId}/schedule`)
+      .then(res => {
+        const data = res.data
         if (data && typeof data === 'object') {
           const merged: Schedule = {
             ...DEFAULT_SCHEDULE,
@@ -90,7 +91,7 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
         }
       })
       .catch(() => {})
-  }, [botId, apiBase, storageKey])
+  }, [botId, storageKey])
 
   const toggleDay = (day: number) => {
     setSchedule(s => {
@@ -107,22 +108,13 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
   const save = async () => {
     setSaving(true)
     try {
-      const res = await fetch(`${apiBase}/api/v1/bots/${botId}/schedule`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(schedule),
-      })
-      if (res.ok) {
-        setSavedSchedule(schedule)
-        try { localStorage.setItem(storageKey, JSON.stringify(schedule)) } catch {}
-        setJustSaved(true)
-        toast.success('Schedule saved')
-        if (justSavedTimer.current) clearTimeout(justSavedTimer.current)
-        justSavedTimer.current = setTimeout(() => setJustSaved(false), 3000)
-      } else {
-        toast.error('Failed to save schedule')
-      }
+      await api.put(`/api/v1/bots/${botId}/schedule`, schedule)
+      setSavedSchedule(schedule)
+      try { localStorage.setItem(storageKey, JSON.stringify(schedule)) } catch {}
+      setJustSaved(true)
+      toast.success('Schedule saved')
+      if (justSavedTimer.current) clearTimeout(justSavedTimer.current)
+      justSavedTimer.current = setTimeout(() => setJustSaved(false), 3000)
     } catch {
       toast.error('Failed to save schedule')
     } finally {
