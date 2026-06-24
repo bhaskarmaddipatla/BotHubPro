@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Sidebar } from '@/components/layout/sidebar'
 import { EmailVerifyBanner } from '@/components/layout/email-verify-banner'
+import TokenKeepAlive from '@/components/auth/TokenKeepAlive'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -18,6 +19,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link href="/legal/terms" target="_blank" className="underline hover:text-yellow-300">Terms</Link>
           </div>
         </div>
+        <TokenKeepAlive />
         <main className="flex-1">{children}</main>
       </div>
     </div>
