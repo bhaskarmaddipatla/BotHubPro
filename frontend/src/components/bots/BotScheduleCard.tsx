@@ -82,7 +82,7 @@ export default function BotScheduleCard({ botId, apiBase }: { botId: string; api
         }
       })
       .catch(() => {})
-  }, [botId, apiBase])
+  }, [botId, apiBase, storageKey])
 
   const toggleDay = (day: number) => {
     setSchedule(s => {
