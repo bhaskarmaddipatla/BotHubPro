@@ -2,11 +2,8 @@
 import { Bell, Search, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef } from 'react'
 import Cookies from 'js-cookie'
 import { authApi } from '@/lib/api'
-
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000
 
 interface HeaderProps {
   title: string
@@ -14,7 +11,6 @@ interface HeaderProps {
 
 export function Header({ title }: HeaderProps) {
   const router = useRouter()
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const logout = async () => {
     try { await authApi.logout() } catch {}
@@ -23,21 +19,35 @@ export function Header({ title }: HeaderProps) {
     router.push('/auth/login')
   }
 
-  useEffect(() => {
-    const reset = () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(logout, IDLE_TIMEOUT_MS)
-    }
-    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart']
-    events.forEach(e => window.addEventListener(e, reset))
-    reset()
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-      events.forEach(e => window.removeEventListener(e, reset))
-    }
-  }, [])
-
   return (
+    <header className="h-16 border-b border-[#1e2a3a] flex items-center justify-between px-6 bg-[#0a0e1a]">
+      <h1 className="text-lg font-semibold text-white">{title}</h1>
+      <div className="flex items-center gap-3">
+        <div className="relative hidden md:flex items-center">
+          <Search size={14} className="absolute left-3 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search..."
+            className="bg-[#0f1623] border border-[#1e2a3a] rounded-lg pl-9 pr-4 py-1.5 text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-500/50 w-48"
+          />
+        </div>
+        <Button variant="ghost" size="icon" className="relative text-gray-400 hover:text-white">
+          <Bell size={18} />
+          <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={logout}
+          className="text-gray-400 hover:text-red-400"
+          title="Logout"
+        >
+          <LogOut size={18} />
+        </Button>
+      </div>
+    </header>
+  )
+}
     <header className="h-16 border-b border-[#1e2a3a] flex items-center justify-between px-6 bg-[#0a0e1a]">
       <h1 className="text-lg font-semibold text-white">{title}</h1>
       <div className="flex items-center gap-3">
