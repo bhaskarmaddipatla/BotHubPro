@@ -92,9 +92,9 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
 }
 
 // ── Confirmation modal ────────────────────────────────────────────────────────
-function ConfirmStartModal({ bot, params, timeParams, paramDefs, onConfirm, onCancel, loading }: {
+function ConfirmStartModal({ bot, params, timeParams, paramDefs, forceEntry, onConfirm, onCancel, loading }: {
   bot: any; params: Record<string, number>; timeParams: Record<string, string>
-  paramDefs: typeof PARAM_DEFS[string]
+  paramDefs: typeof PARAM_DEFS[string]; forceEntry: boolean
   onConfirm: () => void; onCancel: () => void; loading: boolean
 }) {
   const [agreed, setAgreed] = useState(false)
@@ -130,6 +130,14 @@ function ConfirmStartModal({ bot, params, timeParams, paramDefs, onConfirm, onCa
               ))}
             </div>
           </div>
+
+          {/* Force Entry warning */}
+          {forceEntry && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs border border-orange-500/40 bg-orange-500/10 text-orange-400">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <span><strong>Force Entry (Test Mode) is ON.</strong> All bias, confidence, OR width, and readiness filters are bypassed. Disable before live trading.</span>
+            </div>
+          )}
 
           {/* Compliance checkbox */}
           <label className="flex items-start gap-3 cursor-pointer">
@@ -294,6 +302,7 @@ export default function LiveBotPage() {
   const [ibkrPaper, setIbkrPaper] = useState<boolean>(true)  // reflects saved IBKR credentials
   const [isAdmin, setIsAdmin] = useState(false)
   const [diagnoseMode, setDiagnoseMode] = useState(false)
+  const [forceEntry, setForceEntry] = useState(false)
 
   const runDiagnose = async () => {
     setDiagLoading(true)
@@ -415,7 +424,7 @@ export default function LiveBotPage() {
     setActionLoading(true)
     setShowConfirm(false)
     try {
-      const res = await botRunnerApi.startWithParams(botId, { ...tradeParams, ...timeParams })
+      const res = await botRunnerApi.startWithParams(botId, { ...tradeParams, ...timeParams, ...(forceEntry ? { force_entry: true } : {}) })
       setRunning(true); setPid(res.data.pid)
       toast.success(`Bot started (PID ${res.data.pid})`)
     } catch (e: any) {
@@ -445,6 +454,7 @@ export default function LiveBotPage() {
       {showConfirm && bot && (
         <ConfirmStartModal
           bot={bot} params={tradeParams} timeParams={timeParams} paramDefs={paramDefs}
+          forceEntry={forceEntry}
           onConfirm={handleStart} onCancel={() => setShowConfirm(false)} loading={actionLoading}
         />
       )}
@@ -621,6 +631,33 @@ export default function LiveBotPage() {
                     </div>
                   )
                 })}
+
+                {/* Force Entry test mode toggle */}
+                <div className={`mt-3 rounded-lg border px-3 py-2.5 ${forceEntry ? 'border-orange-500/40 bg-orange-500/10' : 'border-[#1e2a3a]'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle size={12} className={forceEntry ? 'text-orange-400' : 'text-gray-600'} />
+                      <span className={`text-xs font-medium ${forceEntry ? 'text-orange-400' : 'text-gray-500'}`}>
+                        Force Entry (Test Mode)
+                      </span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={forceEntry}
+                        disabled={running}
+                        onChange={e => setForceEntry(e.target.checked)}
+                      />
+                      <div className="w-8 h-4 bg-gray-600 peer-focus:ring-1 peer-focus:ring-orange-500 rounded-full peer peer-checked:bg-orange-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-40" />
+                    </label>
+                  </div>
+                  {forceEntry && (
+                    <p className="text-xs text-orange-400/70 mt-1.5">
+                      Skips all bias, confidence, OR width and readiness filters. For testing only — disable before live trading.
+                    </p>
+                  )}
+                </div>
 
                 <div className="pt-3 flex items-center justify-between gap-2">
                   {hasUnsaved && !running ? (
