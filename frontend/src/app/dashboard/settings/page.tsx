@@ -156,6 +156,7 @@ export default function SettingsPage() {
             ) : mfaSetup ? (
               <div className="space-y-4">
                 <p className="text-gray-400 text-sm">Scan with Google/Microsoft Authenticator:</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={mfaSetup.qr_code_url} alt="MFA QR" className="w-48 h-48 bg-white p-2 rounded-lg" />
                 <div className="space-y-1">
                   <Label>Verification Code</Label>
