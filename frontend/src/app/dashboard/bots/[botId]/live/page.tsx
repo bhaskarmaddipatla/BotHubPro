@@ -91,6 +91,150 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
 }
 
+// ── Open Positions Card ───────────────────────────────────────────────────────
+function OpenPositionsCard({ positions }: { positions: any[] }) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+
+  const legs = positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0)
+
+  // Group legs into spreads: pair a SELL (qty<0) with nearest-strike BUY (qty>0)
+  const spreads: { short: any; long: any }[] = []
+  const used = new Set<number>()
+  const sells = legs.map((l, i) => ({ l, i })).filter(({ l }) => Number(l.position ?? l.qty ?? l.pos ?? 0) < 0)
+  const buys  = legs.map((l, i) => ({ l, i })).filter(({ l }) => Number(l.position ?? l.qty ?? l.pos ?? 0) > 0)
+
+  for (const { l: sl, i: si } of sells) {
+    const shortStrike = Number(sl.strike ?? sl.localSymbol?.match(/\d{8}[CP](\d+)/)?.[1] ?? 0)
+    let bestIdx = -1, bestDist = Infinity
+    for (const { l: bl, i: bi } of buys) {
+      if (used.has(bi)) continue
+      const longStrike = Number(bl.strike ?? bl.localSymbol?.match(/\d{8}[CP](\d+)/)?.[1] ?? 0)
+      const dist = Math.abs(shortStrike - longStrike)
+      if (dist < bestDist) { bestDist = dist; bestIdx = bi }
+    }
+    if (bestIdx >= 0) { used.add(bestIdx); spreads.push({ short: sl, long: legs[bestIdx] }) }
+    else spreads.push({ short: sl, long: null })
+  }
+  // Any unpaired buys
+  for (const { l: bl, i: bi } of buys) {
+    if (!used.has(bi)) spreads.push({ short: null, long: bl })
+  }
+
+  const toggle = (i: number) => setExpanded(s => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })
+
+  const fmtPnl = (v: any) => {
+    if (v === undefined || v === null) return '—'
+    const n = Number(v)
+    return <span className={n >= 0 ? 'text-green-400' : 'text-red-400'}>${n.toFixed(2)}</span>
+  }
+
+  const legSym = (p: any) => String(p?.localSymbol ?? p?.local_symbol ?? p?.symbol ?? '—')
+  const legQty = (p: any) => Number(p?.position ?? p?.qty ?? p?.pos ?? 0)
+  const legPnl = (p: any) => p?.unrealPnL ?? p?.unreal_pnl ?? p?.unrealizedPNL ?? p?.unrealized_pnl
+  const legDay = (p: any) => p?.dayPnL ?? p?.day_pnl
+  const legPx  = (p: any) => p?.avgCost ?? p?.avg_cost ?? p?.averageCost
+  const legLast= (p: any) => p?.lastPrice ?? p?.last_price ?? p?.marketPrice ?? p?.market_price
+  const legMkt = (p: any) => p?.mktValue ?? p?.mkt_value ?? p?.marketValue
+
+  // Parse "SPXW 260626P07355000" → strike label "7355P"
+  const strikeLabel = (sym: string) => {
+    const m = sym.match(/(\d{6})([CP])(\d+)/)
+    if (!m) return sym
+    return `${parseInt(m[3]) / 1000}${m[2]}`
+  }
+
+  const spreadLabel = (s: { short: any; long: any }) => {
+    const ss = s.short ? strikeLabel(legSym(s.short)) : '?'
+    const ls = s.long  ? strikeLabel(legSym(s.long))  : '?'
+    const right = (s.short ?? s.long)?.right ?? (legSym(s.short ?? s.long).includes('P') ? 'Put' : 'Call')
+    return `SPX ${ss}/${ls} ${right === 'P' || legSym(s.short ?? s.long).includes('P') ? 'Put' : 'Call'} Spread`
+  }
+
+  const spreadPnl = (s: { short: any; long: any }) => {
+    const a = Number(legPnl(s.short) ?? 0)
+    const b = Number(legPnl(s.long)  ?? 0)
+    return (legPnl(s.short) !== undefined || legPnl(s.long) !== undefined) ? a + b : undefined
+  }
+
+  const spreadDay = (s: { short: any; long: any }) => {
+    const a = Number(legDay(s.short) ?? 0)
+    const b = Number(legDay(s.long)  ?? 0)
+    return (legDay(s.short) !== undefined || legDay(s.long) !== undefined) ? a + b : undefined
+  }
+
+  return (
+    <Card className="bg-[#0f1623] border-[#1e2a3a] flex flex-col flex-1">
+      <CardHeader className="pb-1 pt-3 px-4">
+        <CardTitle className="text-sm text-white flex items-center gap-2">
+          Open Positions
+          {spreads.length > 0 && (
+            <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">{spreads.length}</span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-0 pb-2 flex-1 flex flex-col">
+        {spreads.length === 0 ? (
+          <p className="text-gray-600 text-xs text-center py-5">No open positions</p>
+        ) : (
+          <div className="overflow-auto max-h-48">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-[#0f1623]">
+                <tr className="text-gray-500 border-b border-[#1e2a3a]">
+                  <th className="text-left px-4 py-1.5 w-4"></th>
+                  <th className="text-left px-2 py-1.5">Instrument</th>
+                  <th className="text-right px-3 py-1.5">Open P&L</th>
+                  <th className="text-right px-3 py-1.5">Day P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {spreads.map((s, i) => {
+                  const open = expanded.has(i)
+                  const totPnl = spreadPnl(s)
+                  const totDay = spreadDay(s)
+                  return (
+                    <>
+                      {/* Spread summary row */}
+                      <tr
+                        key={`s${i}`}
+                        className="border-b border-[#1e2a3a]/40 hover:bg-[#1e2a3a]/30 cursor-pointer"
+                        onClick={() => toggle(i)}
+                      >
+                        <td className="px-4 py-1.5 text-gray-500">{open ? '▾' : '▸'}</td>
+                        <td className="px-2 py-1.5 text-gray-200 font-medium">{spreadLabel(s)}</td>
+                        <td className="px-3 py-1.5 text-right font-medium">{fmtPnl(totPnl)}</td>
+                        <td className="px-3 py-1.5 text-right font-medium">{fmtPnl(totDay)}</td>
+                      </tr>
+                      {/* Expanded leg rows */}
+                      {open && [s.short, s.long].filter(Boolean).map((leg, li) => {
+                        const qty = legQty(leg)
+                        return (
+                          <tr key={`l${i}-${li}`} className="bg-[#0a0e1a] border-b border-[#1e2a3a]/20">
+                            <td className="px-4 py-1"></td>
+                            <td className="px-2 py-1 font-mono text-gray-400 text-[11px]">
+                              <span className={`mr-1.5 font-medium ${qty < 0 ? 'text-orange-400' : 'text-blue-400'}`}>{qty > 0 ? '+' : ''}{qty}</span>
+                              {legSym(leg)}
+                            </td>
+                            <td className="px-3 py-1 text-right text-gray-400">
+                              {legPx(leg) !== undefined ? `avg ${Number(legPx(leg)).toFixed(2)}` : '—'}
+                            </td>
+                            <td className="px-3 py-1 text-right text-gray-400">
+                              {legLast(leg) !== undefined ? `last ${Number(legLast(leg)).toFixed(2)}` : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── Confirmation modal ────────────────────────────────────────────────────────
 function ConfirmStartModal({ bot, params, timeParams, paramDefs, forceEntry, onConfirm, onCancel, loading }: {
   bot: any; params: Record<string, number>; timeParams: Record<string, string>
@@ -684,66 +828,7 @@ export default function LiveBotPage() {
           {/* Right: Positions + Trade Log */}
           <div className="flex flex-col gap-3">
             {/* Open Positions */}
-            <Card className="bg-[#0f1623] border-[#1e2a3a] flex flex-col flex-1">
-              <CardHeader className="pb-1 pt-3 px-4">
-                <CardTitle className="text-sm text-white flex items-center gap-2">
-                  Open Positions
-                  {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).length > 0 && (
-                    <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">
-                      {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).length}
-                    </span>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-0 pb-2 flex-1 flex flex-col">
-                {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).length === 0 ? (
-                  <p className="text-gray-600 text-xs text-center py-5">No open positions</p>
-                ) : (
-                  <div className="overflow-auto max-h-48">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-[#0f1623]">
-                        <tr className="text-gray-500 border-b border-[#1e2a3a]">
-                          <th className="text-left px-4 py-1.5">Instrument</th>
-                          <th className="text-right px-3 py-1.5">Qty</th>
-                          <th className="text-right px-3 py-1.5">Trade Px</th>
-                          <th className="text-right px-3 py-1.5">Last</th>
-                          <th className="text-right px-3 py-1.5">Mkt Val</th>
-                          <th className="text-right px-3 py-1.5">Open P&L</th>
-                          <th className="text-right px-3 py-1.5">Day P&L</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0).map((pos, i) => {
-                          const rawPnl = pos.unrealPnL ?? pos.unreal_pnl ?? pos.unrealizedPNL ?? pos.unrealized_pnl
-                          const dayPnl = pos.dayPnL ?? pos.day_pnl ?? pos.realizedPNL ?? pos.realized_pnl
-                          const pnl = Number(rawPnl ?? 0)
-                          const sym = String(pos.localSymbol ?? pos.local_symbol ?? pos.symbol ?? '—')
-                          const qty = Number(pos.position ?? pos.qty ?? pos.pos ?? 0)
-                          const tradePx = pos.avgCost ?? pos.avg_cost ?? pos.averageCost
-                          const lastPx = pos.lastPrice ?? pos.last_price ?? pos.marketPrice ?? pos.market_price
-                          const mktVal = pos.mktValue ?? pos.mkt_value ?? pos.marketValue
-                          return (
-                            <tr key={i} className="border-b border-[#1e2a3a]/40 hover:bg-[#1e2a3a]/30">
-                              <td className="px-4 py-1.5 font-mono text-gray-200 whitespace-nowrap">{sym}</td>
-                              <td className={`px-3 py-1.5 text-right font-medium ${qty > 0 ? 'text-blue-400' : 'text-orange-400'}`}>{qty}</td>
-                              <td className="px-3 py-1.5 text-right text-gray-300">{tradePx !== undefined ? Number(tradePx).toFixed(2) : '—'}</td>
-                              <td className="px-3 py-1.5 text-right text-gray-300">{lastPx !== undefined ? Number(lastPx).toFixed(2) : '—'}</td>
-                              <td className="px-3 py-1.5 text-right text-gray-300">{mktVal !== undefined ? `$${Number(mktVal).toFixed(0)}` : '—'}</td>
-                              <td className={`px-3 py-1.5 text-right font-medium ${rawPnl !== undefined ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                                {rawPnl !== undefined ? `$${pnl.toFixed(2)}` : '—'}
-                              </td>
-                              <td className={`px-3 py-1.5 text-right font-medium ${dayPnl !== undefined ? (Number(dayPnl) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                                {dayPnl !== undefined ? `$${Number(dayPnl).toFixed(2)}` : '—'}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <OpenPositionsCard positions={positions} />
 
             {/* Trade Log */}
             <Card className="bg-[#0f1623] border-[#1e2a3a] flex flex-col flex-[2]">
