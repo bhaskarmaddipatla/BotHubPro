@@ -165,11 +165,12 @@ function ConfirmStartModal({ bot, params, timeParams, paramDefs, onConfirm, onCa
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-function BotProcessLog({ lines, running, show, onToggle, onClear }: {
-  lines: string[]; running: boolean; show: boolean; onToggle: () => void; onClear: () => void
+function BotProcessLog({ lines, running, show, onToggle, onClear, onRefresh }: {
+  lines: string[]; running: boolean; show: boolean; onToggle: () => void; onClear: () => void; onRefresh: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scrolledUp, setScrolledUp] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   // Auto-scroll to bottom only when user is already at bottom
   useEffect(() => {
@@ -209,6 +210,13 @@ function BotProcessLog({ lines, running, show, onToggle, onClear }: {
                 ↓ Latest
               </button>
             )}
+            <button
+              onClick={async () => { setRefreshing(true); await onRefresh(); setRefreshing(false) }}
+              className="text-gray-500 hover:text-gray-300 transition-colors"
+              title="Refresh log"
+            >
+              <Loader2 size={13} className={refreshing ? 'animate-spin text-blue-400' : ''} />
+            </button>
             {lines.length > 0 && (
               <button onClick={onClear} className="text-xs text-gray-500 hover:text-red-400 transition-colors">
                 Clear
@@ -717,7 +725,7 @@ export default function LiveBotPage() {
             {/* Process Log — visible to admins and users with diagnose mode enabled */}
             {showDebug && (
               <div className="flex-1">
-                <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} onClear={() => { logClearedRef.current = true; setBotLog([]) }} />
+                <BotProcessLog lines={botLog} running={running} show={showLog} onToggle={() => setShowLog(v => !v)} onClear={() => { logClearedRef.current = true; setBotLog([]) }} onRefresh={fetchBotLog} />
               </div>
             )}
           </div>
