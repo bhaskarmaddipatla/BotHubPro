@@ -148,8 +148,13 @@ def check_bot_schedules():
         import pytz
         from datetime import datetime
         from app.core.database import SessionLocal
+        from app.models.bot import Bot  # must be imported before BotSchedule to resolve relationship
         from app.models.bot_schedule import BotSchedule
+        from app.models.user import User
+        from app.core.security import create_access_token
         import httpx
+
+        backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
         db = SessionLocal()
         try:
@@ -162,20 +167,29 @@ def check_bot_schedules():
                     current_time = now.strftime("%H:%M")
                     if day not in sched.days_of_week:
                         continue
-                    # Start bot at start_time
+                    bot = db.query(Bot).filter(Bot.id == sched.bot_id).first()
+                    if not bot:
+                        continue
+                    user = db.query(User).filter(User.id == bot.user_id).first()
+                    if not user:
+                        continue
+                    # Generate a short-lived token so the scheduler can call authenticated endpoints
+                    token = create_access_token({"sub": str(user.id)})
+                    headers = {"Authorization": f"Bearer {token}"}
                     if current_time == sched.start_time:
+                        logger.info(f"Schedule: starting bot {bot.id} for user {user.email}")
                         httpx.post(
-                            f"http://localhost:8000/api/v1/bot-runner/{sched.bot_id}/start",
+                            f"{backend_url}/api/v1/bot-runner/{bot.id}/start",
                             json={},
-                            headers={"X-Schedule-Token": os.environ.get("SECRET_KEY", "")},
-                            timeout=10
+                            headers=headers,
+                            timeout=30,
                         )
-                    # Stop bot at stop_time
                     elif current_time == sched.stop_time:
+                        logger.info(f"Schedule: stopping bot {bot.id} for user {user.email}")
                         httpx.post(
-                            f"http://localhost:8000/api/v1/bot-runner/{sched.bot_id}/stop",
-                            headers={"X-Schedule-Token": os.environ.get("SECRET_KEY", "")},
-                            timeout=10
+                            f"{backend_url}/api/v1/bot-runner/{bot.id}/stop",
+                            headers=headers,
+                            timeout=10,
                         )
                 except Exception as e:
                     logger.error(f"Schedule check error for bot {sched.bot_id}: {e}")
