@@ -141,18 +141,20 @@ export default function BotTradeLog({ trades }: { trades: TradeEntry[] }) {
 
   const toggle = (id: string) => setExpanded(e => ({ ...e, [id]: !e[id] }))
 
-  const filtered = useMemo(() => {
-    if (filterMode === 'today') {
-      const today = todayET()
-      return trades.filter(t => tradeDate(t) === today)
-    }
-    return trades.filter(t => {
-      const d = tradeDate(t)
-      return d >= fromDate && d <= toDate
-    })
-  }, [trades, filterMode, fromDate, toDate])
+  const allGroups = useMemo(() => groupTrades(trades), [trades])
 
-  const groups = groupTrades(filtered)
+  const groups = useMemo(() => {
+    return allGroups.filter(g => {
+      // Use the group's open time for date comparison
+      const raw = g.openTime ?? ''
+      if (!raw) return true
+      try {
+        const d = new Date(raw).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+        if (filterMode === 'today') return d === todayET()
+        return d >= fromDate && d <= toDate
+      } catch { return true }
+    })
+  }, [allGroups, filterMode, fromDate, toDate])
 
   const totalPnl = groups.reduce((sum, g) => sum + (g.netPnl ?? 0), 0)
   const closedGroups = groups.filter(g => g.status === 'closed')
@@ -215,7 +217,7 @@ export default function BotTradeLog({ trades }: { trades: TradeEntry[] }) {
       {groups.length === 0 ? (
         <p className="text-gray-600 text-xs text-center py-5">No trades for selected period</p>
       ) : (
-        <div className="overflow-auto flex-1">
+        <div className="overflow-auto" style={{ maxHeight: '320px' }}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-[#0f1623] z-10">
               <tr className="text-gray-500 border-b border-[#1e2a3a]">
