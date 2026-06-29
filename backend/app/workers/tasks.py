@@ -148,6 +148,7 @@ def check_bot_schedules():
         import pytz
         from datetime import datetime
         from app.core.database import SessionLocal
+        from app.models.execution import Execution  # must be imported before Bot to resolve relationship
         from app.models.bot import Bot  # must be imported before BotSchedule to resolve relationship
         from app.models.bot_schedule import BotSchedule
         from app.models.user import User
