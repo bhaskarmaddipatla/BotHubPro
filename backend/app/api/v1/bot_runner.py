@@ -93,14 +93,16 @@ def _sync_bot_from_git(bot_files_dir: Path, git_repo: str, git_branch: str, git_
     clone_dir = Path(f"/tmp/git_bots/{git_repo.rstrip('/').split('/')[-1].replace('.git', '')}")
     try:
         if clone_dir.exists():
-            subprocess.run(
+            fetch = subprocess.run(
                 ["git", "fetch", "--depth=1", "origin", git_branch],
-                cwd=str(clone_dir), capture_output=True, text=True, timeout=30, env=git_env
+                cwd=str(clone_dir), capture_output=True, text=True, timeout=60, env=git_env
             )
-            subprocess.run(
-                ["git", "reset", "--hard", f"origin/{git_branch}"],
-                cwd=str(clone_dir), capture_output=True, text=True, timeout=15, env=git_env
-            )
+            if fetch.returncode == 0:
+                subprocess.run(
+                    ["git", "reset", "--hard", f"origin/{git_branch}"],
+                    cwd=str(clone_dir), capture_output=True, text=True, timeout=15, env=git_env
+                )
+            # If fetch fails (timeout/network), continue with cached clone
         else:
             clone_dir.parent.mkdir(parents=True, exist_ok=True)
             result = subprocess.run(
