@@ -112,7 +112,6 @@ function buildGroup(id: string, rows: TradeEntry[]): SpreadGroup {
     return a.includes('EXIT') || a === 'BUY TO CLOSE'
   })
 
-  const instrument = String(rows[0]?.instrument ?? rows[0]?.description ?? rows[0]?.symbol ?? 'SPX Spread')
   const allTimes = rows.map(r => r.time ?? r.timestamp).filter(Boolean) as string[]
   const sorted = [...allTimes].sort()
   const openTime = sorted[0]
@@ -121,6 +120,26 @@ function buildGroup(id: string, rows: TradeEntry[]): SpreadGroup {
   const netPnl = pnlVals.length > 0 ? pnlVals.reduce((a, b) => a + b, 0) : undefined
   const creditVals = entries.map(r => Number(r.filled_price ?? r.price ?? r.credit ?? NaN)).filter(n => !isNaN(n))
   const entryCredit = creditVals.length > 0 ? creditVals.reduce((a, b) => a + b, 0) / creditVals.length : undefined
+
+  // Build instrument label with strikes and credit/debit type
+  const instrument = (() => {
+    const ref = entries[0] ?? rows[0]
+    const rawInstrument = String(ref?.instrument ?? ref?.description ?? ref?.symbol ?? '')
+    const shortStrike = Number(ref?.short_strike ?? NaN)
+    const longStrike  = Number(ref?.long_strike  ?? NaN)
+    const rightLabel  = String(ref?.right ?? '').toUpperCase().startsWith('C') ? 'Call' : 'Put'
+    // negative filled_price on a combo BUY = credit received
+    const creditVal = Number(entries[0]?.filled_price ?? entries[0]?.price ?? entries[0]?.credit ?? NaN)
+    const isCredit = !isNaN(creditVal) ? creditVal < 0 : (!isNaN(shortStrike) && !isNaN(longStrike) ? shortStrike > longStrike : true)
+    const spreadType = isCredit ? 'Credit' : 'Debit'
+    if (!isNaN(shortStrike) && !isNaN(longStrike)) {
+      return `SPX ${shortStrike}/${longStrike} ${rightLabel} ${spreadType} Spread`
+    }
+    if (rawInstrument && !/credit|debit/i.test(rawInstrument)) {
+      return rawInstrument.replace(/\bSpread\b/i, `${spreadType} Spread`)
+    }
+    return rawInstrument || `SPX ${spreadType} Spread`
+  })()
   const hasFailedExit = exits.some(r => String(r.status ?? '').toUpperCase() === 'FAILED')
   const status: SpreadGroup['status'] = exits.length > 0 && !hasFailedExit ? 'closed' : hasFailedExit ? 'failed' : 'open'
 

@@ -146,8 +146,12 @@ function OpenPositionsCard({ positions }: { positions: any[] }) {
   const spreadLabel = (s: { short: any; long: any }) => {
     const ss = s.short ? strikeLabel(legSym(s.short)) : '?'
     const ls = s.long  ? strikeLabel(legSym(s.long))  : '?'
-    const right = (s.short ?? s.long)?.right ?? (legSym(s.short ?? s.long).includes('P') ? 'Put' : 'Call')
-    return `SPX ${ss}/${ls} ${right === 'P' || legSym(s.short ?? s.long).includes('P') ? 'Put' : 'Call'} Spread`
+    const sym = legSym(s.short ?? s.long)
+    const right = sym.includes('P') ? 'Put' : 'Call'
+    const shortStrike = s.short ? Number(s.short.strike ?? sym.match(/\d{8}[CP](\d+)/)?.[1] ?? 0) / (s.short.strike ? 1 : 1000) : 0
+    const longStrike  = s.long  ? Number(s.long.strike  ?? legSym(s.long).match(/\d{8}[CP](\d+)/)?.[1] ?? 0) / (s.long.strike ? 1 : 1000) : 0
+    const spreadType = s.short && s.long ? (shortStrike > longStrike ? 'Credit' : 'Debit') : ''
+    return `SPX ${ss}/${ls} ${right} ${spreadType} Spread`.trim()
   }
 
   const spreadPnl = (s: { short: any; long: any }) => {
@@ -558,7 +562,7 @@ export default function LiveBotPage() {
   useEffect(() => {
     fetchStatus(); fetchPositions(); fetchTradeLog(); fetchBotLog()
     const s = setInterval(fetchStatus, 5000)
-    const d = setInterval(() => { fetchPositions(); fetchTradeLog() }, 10000)
+    const d = setInterval(() => { fetchPositions(); fetchTradeLog() }, 5000)
     const l = setInterval(fetchBotLog, 3000)  // log refreshes fast so nothing is missed
     return () => { clearInterval(s); clearInterval(d) }
     return () => { clearInterval(s); clearInterval(d); clearInterval(l) }
