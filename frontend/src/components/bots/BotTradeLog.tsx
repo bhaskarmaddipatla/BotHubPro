@@ -56,7 +56,7 @@ interface SpreadGroup {
   exits: TradeEntry[]
   all: TradeEntry[]
   netPnl?: number
-  status: 'open' | 'closed' | 'failed'
+  status: 'open' | 'closed' | 'failed' | 'pending'
   openTime?: string
   closeTime?: string
   entryCredit?: number
@@ -115,23 +115,34 @@ function buildGroup(id: string, rows: TradeEntry[]): SpreadGroup {
   const allTimes = rows.map(r => r.time ?? r.timestamp).filter(Boolean) as string[]
   const sorted = [...allTimes].sort()
   const openTime = sorted[0]
-  const closeTime = exits.length > 0 ? sorted[sorted.length - 1] : undefined
-  const pnlVals = exits.map(r => Number(r.pnl ?? NaN)).filter(n => !isNaN(n))
+
+  // Only count exits that actually filled (not PendingSubmit / cancelled)
+  const filledExits = exits.filter(r => {
+    const s = String(r.status ?? '').toUpperCase()
+    return s === 'FILLED' || s === 'COMPLETED' || s === 'EXIT_FILLED'
+  })
+  const closeTime = filledExits.length > 0 ? filledExits.map(r => r.time ?? r.timestamp).filter(Boolean).sort().pop() as string | undefined : undefined
+
+  const pnlVals = filledExits.map(r => Number(r.pnl ?? NaN)).filter(n => !isNaN(n))
   const netPnl = pnlVals.length > 0 ? pnlVals.reduce((a, b) => a + b, 0) : undefined
   const creditVals = entries.map(r => Number(r.filled_price ?? r.price ?? r.credit ?? NaN)).filter(n => !isNaN(n))
   const entryCredit = creditVals.length > 0 ? creditVals.reduce((a, b) => a + b, 0) / creditVals.length : undefined
 
-  // Build instrument label with strikes and credit/debit type
+  // Build instrument label — prefer the row with the richest data (entry with strikes)
   const instrument = (() => {
-    const ref = entries[0] ?? rows[0]
-    const rawInstrument = String(ref?.instrument ?? ref?.description ?? ref?.symbol ?? '')
-    const shortStrike = Number(ref?.short_strike ?? NaN)
-    const longStrike  = Number(ref?.long_strike  ?? NaN)
-    const rightLabel  = String(ref?.right ?? '').toUpperCase().startsWith('C') ? 'Call' : 'Put'
-    // negative filled_price on a combo BUY = credit received
-    const creditVal = Number(entries[0]?.filled_price ?? entries[0]?.price ?? entries[0]?.credit ?? NaN)
-    const isCredit = !isNaN(creditVal) ? creditVal < 0 : (!isNaN(shortStrike) && !isNaN(longStrike) ? shortStrike > longStrike : true)
-    const spreadType = isCredit ? 'Credit' : 'Debit'
+    // Use spread_type field directly if available (new trading-bots format)
+    const entryRef = entries[0]
+    if (entryRef?.spread_type) return String(entryRef.spread_type)
+
+    // Pick the row with the most informative instrument name (has digits = has strikes)
+    const best = [...entries, ...rows].find(r => /\d/.test(String(r.instrument ?? ''))) ?? entryRef ?? rows[0]
+    const rawInstrument = String(best?.instrument ?? best?.description ?? best?.symbol ?? '')
+    const shortStrike = Number(best?.short_strike ?? NaN)
+    const longStrike  = Number(best?.long_strike  ?? NaN)
+    const rightLabel  = String(best?.right ?? (rawInstrument.toLowerCase().includes('call') ? 'C' : 'P')).toUpperCase().startsWith('C') ? 'Call' : 'Put'
+    const creditVal   = Number(entries[0]?.filled_price ?? entries[0]?.price ?? entries[0]?.credit ?? NaN)
+    const isCredit    = !isNaN(creditVal) ? creditVal < 0 : (!isNaN(shortStrike) && !isNaN(longStrike) ? shortStrike > longStrike : true)
+    const spreadType  = isCredit ? 'Credit' : 'Debit'
     if (!isNaN(shortStrike) && !isNaN(longStrike)) {
       return `SPX ${shortStrike}/${longStrike} ${rightLabel} ${spreadType} Spread`
     }
@@ -140,8 +151,10 @@ function buildGroup(id: string, rows: TradeEntry[]): SpreadGroup {
     }
     return rawInstrument || `SPX ${spreadType} Spread`
   })()
+
   const hasFailedExit = exits.some(r => String(r.status ?? '').toUpperCase() === 'FAILED')
-  const status: SpreadGroup['status'] = exits.length > 0 && !hasFailedExit ? 'closed' : hasFailedExit ? 'failed' : 'open'
+  const hasPendingExit = exits.length > 0 && filledExits.length === 0
+  const status: SpreadGroup['status'] = filledExits.length > 0 && !hasFailedExit ? 'closed' : hasFailedExit ? 'failed' : hasPendingExit ? 'pending' : 'open'
 
   return { id, instrument, entries, exits, all: rows, netPnl, status, openTime, closeTime, entryCredit }
 }
@@ -254,9 +267,12 @@ export default function BotTradeLog({ trades }: { trades: TradeEntry[] }) {
                 const isOpen = expanded[g.id]
                 const statusColor = g.status === 'closed' ? 'text-green-400'
                   : g.status === 'failed' ? 'text-red-500'
+                  : g.status === 'pending' ? 'text-orange-400'
                   : 'text-yellow-400'
                 const statusLabel = g.status === 'closed' ? 'Closed'
-                  : g.status === 'failed' ? 'Failed' : 'Open'
+                  : g.status === 'failed' ? 'Failed'
+                  : g.status === 'pending' ? 'Pending Exit'
+                  : 'Open'
                 const pnlColor = g.netPnl === undefined ? 'text-gray-500'
                   : g.netPnl >= 0 ? 'text-green-400' : 'text-red-400'
 
