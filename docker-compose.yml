@@ -56,7 +56,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-YourBotHubProBot}
-      BACKEND_URL: ${BACKEND_URL:-http://localhost:8000}
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["http://localhost:3000","http://localhost:3001"]}
     depends_on:
       db:
@@ -80,7 +80,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:-BotHubProDevKey2024SecretMin32Ch}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      BACKEND_URL: ${BACKEND_URL:-http://localhost:8000}
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
     depends_on:
       db:
         condition: service_healthy
@@ -99,6 +99,7 @@ services:
       DATABASE_URL: postgresql://bothubpro:bothubpro@db:5432/bothubpro
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-BotHubProDevKey2024SecretMin32Ch}
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
     depends_on:
       db:
         condition: service_healthy
