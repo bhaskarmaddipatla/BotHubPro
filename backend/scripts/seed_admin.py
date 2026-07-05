@@ -20,7 +20,7 @@ Base.metadata.create_all(bind=engine)
 
 GIT_ENGINE = {
     "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
-    "git_branch": "main",
+    "git_branch": "claude/elegant-brown-n7xf4v",
     "git_path": "bots",          # sync the whole bots/ package so imports work
     "entry_file": "bots/engine/runner.py",  # bots/ is copied as subdir; cwd=bot_files_dir
 }
