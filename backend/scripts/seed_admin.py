@@ -20,7 +20,7 @@ Base.metadata.create_all(bind=engine)
 
 GIT_ENGINE = {
     "git_repo": "https://github.com/bhaskarmaddipatla/trading-bots.git",
-    "git_branch": "claude/elegant-brown-n7xf4v",
+    "git_branch": "main",
     "git_path": "bots",          # sync the whole bots/ package so imports work
     "entry_file": "bots/engine/runner.py",  # bots/ is copied as subdir; cwd=bot_files_dir
 }
@@ -104,6 +104,23 @@ SPX_BOTS = [
         "marketplace_description": "GEX-driven directional credit spread. Uses put/call walls and dealer gamma positioning to pick spread direction.",
     },
     {
+        "name": "SPX 0DTE AI",
+        "description": "AI-driven 0DTE SPX credit spread bot using machine learning signals for entry timing, direction, and strike selection. Combines momentum, volatility regime, and options flow data to maximize risk-adjusted returns.",
+        "category": BotCategory.credit_spread,
+        "risk_level": RiskLevel.medium,
+        "configuration": {
+            "entry_file": "runner.py",
+            "strategy": "spx_0dte_ai",
+            "symbol": "SPX", "dte": 0,
+            "max_trades_per_day": 4, "profit_target_pct": 50, "stop_loss_pct": 200,
+            "trade_window_start": "09:45", "trade_window_end": "15:00",
+            **GIT_ENGINE,
+        },
+        "schedule_cron": "45 9 * * 1-5",
+        "is_marketplace": True,
+        "marketplace_description": "AI-powered 0DTE SPX credit spread using ML-based signal generation for entry, direction, and strike selection. Adapts to changing market regimes in real time.",
+    },
+    {
         "name": "SPX Premarket Gap",
         "description": "Trades the SPX premarket gap fill pattern. Enters a credit spread against the gap direction within the first 30 minutes of market open. Takes profit at 50% of credit received; cuts loss at 200% of credit received.",
         "category": BotCategory.credit_spread,
@@ -147,46 +164,38 @@ def seed_admin():
             print("   Password: Admin@1234")
             print("   ⚠️  Please change this password after first login!")
 
-        # Seed SPX bots if not already present
-        existing_count = db.query(Bot).filter(Bot.user_id == admin.id).count()
-        if existing_count > 0:
-            # Patch git coordinates and strategy on existing bots that are missing them
-            patched = 0
-            for b in SPX_BOTS:
-                if not b["configuration"].get("git_repo"):
-                    continue
-                existing_bot = db.query(Bot).filter(Bot.user_id == admin.id, Bot.name == b["name"]).first()
-                if existing_bot:
-                    cfg = dict(existing_bot.configuration or {})
-                    changed = False
-                    for key in ("git_repo", "git_branch", "git_path", "entry_file", "strategy"):
-                        if key in b["configuration"] and cfg.get(key) != b["configuration"][key]:
-                            cfg[key] = b["configuration"][key]
-                            changed = True
-                    if changed:
-                        existing_bot.configuration = cfg
-                        patched += 1
-            db.commit()
-            print(f"✓ {existing_count} bots already seeded ({patched} patched with git/strategy config)")
-            return
-
+        # Seed / patch bots by name — always runs so new bots are added and config is kept current
+        patched = added = 0
         for b in SPX_BOTS:
-            db.add(Bot(
-                user_id=admin.id,
-                name=b["name"],
-                description=b["description"],
-                category=b["category"],
-                risk_level=b["risk_level"],
-                status=BotStatus.active,
-                is_approved=True,
-                configuration=b["configuration"],
-                schedule_cron=b["schedule_cron"],
-                is_marketplace=b["is_marketplace"],
-                marketplace_description=b["marketplace_description"],
-            ))
-
+            existing_bot = db.query(Bot).filter(Bot.user_id == admin.id, Bot.name == b["name"]).first()
+            if existing_bot:
+                cfg = dict(existing_bot.configuration or {})
+                changed = False
+                for key in ("git_repo", "git_branch", "git_path", "entry_file", "strategy"):
+                    if key in b["configuration"] and cfg.get(key) != b["configuration"][key]:
+                        cfg[key] = b["configuration"][key]
+                        changed = True
+                if changed:
+                    existing_bot.configuration = cfg
+                    patched += 1
+            else:
+                db.add(Bot(
+                    user_id=admin.id,
+                    name=b["name"],
+                    description=b["description"],
+                    category=b["category"],
+                    risk_level=b["risk_level"],
+                    status=BotStatus.active,
+                    is_approved=True,
+                    configuration=b["configuration"],
+                    schedule_cron=b["schedule_cron"],
+                    is_marketplace=b["is_marketplace"],
+                    marketplace_description=b["marketplace_description"],
+                ))
+                added += 1
         db.commit()
-        print(f"✅ Seeded {len(SPX_BOTS)} SPX trading bots")
+        total = db.query(Bot).filter(Bot.user_id == admin.id).count()
+        print(f"✓ {total} bots seeded ({added} added, {patched} patched with git/strategy config)")
 
     finally:
         db.close()

@@ -45,6 +45,7 @@ const categoryLabels: Record<string, string> = {
   credit_spread: 'Credit Spread', iron_condor: 'Iron Condor',
   iron_fly: 'Iron Fly', butterfly: 'Butterfly',
   pmcc: 'PMCC', calendar: 'Calendar', custom: 'Custom',
+  spx_0dte_ai: 'AI Credit Spread',
 }
 
 const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; min?: number; max?: number; step?: number; type?: 'time'; tooltip: string }[]> = {
@@ -82,6 +83,15 @@ const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; mi
     { key: 'entry_start',      label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
     { key: 'entry_end',        label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
+  spx_0dte_ai: [
+    { key: 'contracts',          label: 'Contracts',       min: 1,    max: 50,    step: 1,    tooltip: 'Number of spread contracts per trade' },
+    { key: 'spread_width',       label: 'Spread Width',    unit: 'pts', min: 5,  max: 50,    step: 5,    tooltip: 'Distance between long and short strike in index points' },
+    { key: 'take_profit_pct',    label: 'Take Profit',     unit: '% of credit', min: 10, max: 100, step: 5, tooltip: 'Close when P&L reaches this % of opening credit received' },
+    { key: 'max_loss_per_trade', label: 'Max Loss',        unit: '$', min: 100,  max: 10000, step: 50,   tooltip: 'Hard dollar stop — exit if unrealised loss reaches this' },
+    { key: 'max_trades_per_day', label: 'Max Trades/Day',  min: 1,    max: 10,   step: 1,    tooltip: 'Maximum new entries allowed per trading day' },
+    { key: 'entry_start',        label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
+    { key: 'entry_end',          label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
+  ],
 }
 
 const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
@@ -89,6 +99,7 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
   iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150 },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
+  spx_0dte_ai:   { contracts: 2, spread_width: 10, take_profit_pct: 50, max_loss_per_trade: 500, max_trades_per_day: 4 },
 }
 
 // ── Open Positions Card ───────────────────────────────────────────────────────
