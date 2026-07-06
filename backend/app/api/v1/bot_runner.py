@@ -162,17 +162,26 @@ async def start_bot(
     data_path = _data_dir(current_user.id, bot_id)
     data_path.mkdir(parents=True, exist_ok=True)
 
+    # Assign unique IBKR client_id per strategy so multiple bots can connect simultaneously.
+    _strategy_client_ids = {
+        "credit_spread": 1, "iron_fly": 1, "iron_condor": 1, "butterfly": 1,
+        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4,
+    }
+    _bot_cfg = bot.configuration or {}
+    _strategy = (body.trade_params or {}).get("strategy") or _bot_cfg.get("strategy", "credit_spread")
+    _client_id = _strategy_client_ids.get(_strategy, creds.get("client_id", 1))
+
     config = {
         "broker": "ibkr",
         "ibkr_host": creds.get("host", "host.docker.internal"),
         "ibkr_port": creds.get("port", 7497),
-        "ibkr_client_id": creds.get("client_id", 1),
+        "ibkr_client_id": _client_id,
         "ibkr_account": creds.get("account", ""),
         "paper_trading": creds.get("paper_trading", True),
         "ibkr_allow_trading": True,
         "data_dir": str(data_path),
         # Merge bot base config then user-supplied trade params on top
-        **(bot.configuration or {}),
+        **_bot_cfg,
         **(body.trade_params or {}),
     }
 
