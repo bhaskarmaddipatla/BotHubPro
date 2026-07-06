@@ -243,11 +243,14 @@ async def start_bot(
 
     backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
-    # Use a client_id derived from the bot_id so multiple bots don't collide,
-    # and so it differs from any local direct connection (e.g. clientId=99).
-    # Take last 3 digits of bot_id int representation, keep in 1-899 range.
-    auto_client_id = (int(str(bot_id).replace("-", ""), 16) % 899) + 1
-    effective_client_id = config.get("ibkr_client_id") or auto_client_id
+    # Assign a unique IBKR client_id per strategy so multiple bots can connect
+    # simultaneously. Mirrors STRATEGY_CLIENT_IDS in trading-bots runner.py.
+    _strategy_client_ids = {
+        "credit_spread": 1, "iron_fly": 1, "iron_condor": 1, "butterfly": 1,
+        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4,
+    }
+    strategy = config.get("strategy", "credit_spread")
+    effective_client_id = _strategy_client_ids.get(strategy, config.get("ibkr_client_id") or 1)
 
     env = os.environ.copy()
     env.update({
