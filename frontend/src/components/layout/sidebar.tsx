@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Bot, Activity, BarChart3, FlaskConical,
-  LineChart, CreditCard, Settings, ShieldCheck, Store
+  LineChart, CreditCard, Settings, ShieldCheck, Store, ScrollText
 } from 'lucide-react'
 import { userApi } from '@/lib/api'
 
@@ -35,7 +35,10 @@ export function Sidebar() {
   const isAdmin = role === 'admin'
 
   const visibleNav = isAdmin
-    ? [...navItems, { href: '/dashboard/admin', label: 'Admin', icon: ShieldCheck }]
+    ? [...navItems,
+        { href: '/dashboard/retrospective', label: 'Retrospective', icon: ScrollText },
+        { href: '/dashboard/admin', label: 'Admin', icon: ShieldCheck },
+      ]
     : navItems
 
   return (

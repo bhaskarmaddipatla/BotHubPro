@@ -139,6 +139,11 @@ export const botRunnerApi = {
     api.post(`/api/v1/bot-runner/${botId}/close-position`, { instrument, con_ids: conIds }),
 }
 
+export const retrospectiveApi = {
+  latest: () => api.get('/api/v1/retrospective/latest'),
+  run: (period: 'today' | 'all' = 'today') => api.post(`/api/v1/retrospective/run?period=${period}`),
+}
+
 export const telegramApi = {
   status: () => api.get('/api/v1/telegram/status'),
   connect: () => api.post('/api/v1/telegram/connect'),
