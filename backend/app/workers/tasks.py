@@ -60,10 +60,13 @@ def execute_bot_task(self, execution_id: str, bot_id: str, user_id: str):
                 creds = json.loads(base64.b64decode(ibkr_key.encrypted_key.encode()).decode())
                 env["IBKR_HOST"] = str(creds.get("host", "127.0.0.1"))
                 env["IBKR_PORT"] = str(creds.get("port", 7497))
-                env["IBKR_CLIENT_ID"] = str(creds.get("client_id", 1))
+                # Use a stable unique client_id per bot (hash of bot_id, range 2–99)
+                # so multiple bots can connect to IBKR simultaneously
+                unique_client_id = (int(uuid.UUID(bot_id)) % 98) + 2
+                env["IBKR_CLIENT_ID"] = str(unique_client_id)
                 env["IBKR_ACCOUNT"] = str(creds.get("account", ""))
                 env["IBKR_PAPER"] = str(creds.get("paper_trading", True)).lower()
-                add_log(f"IBKR credentials injected (account: {creds.get('account', 'N/A')})")
+                add_log(f"IBKR credentials injected (account: {creds.get('account', 'N/A')}, clientId: {unique_client_id})")
             except Exception as e:
                 add_log(f"Warning: Could not load IBKR credentials: {e}", "WARN")
 
