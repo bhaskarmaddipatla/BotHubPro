@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { botsApi, executionsApi, api, subscriptionsApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { Play, Trash2, Upload, Clock, X, FileCode, Lock, Radio, LayoutGrid, List, Grid3X3 } from 'lucide-react'
+import { Trash2, Upload, Clock, X, FileCode, Lock, Monitor, LayoutGrid, List, Grid3X3 } from 'lucide-react'
 
 type ViewMode = 'cards' | 'compact' | 'list'
 
@@ -35,20 +35,20 @@ function BotActions({ bot, hasSubscription, isAdmin, runningBots, onRun, onLive,
   onRun: (id: string) => void; onLive: (id: string) => void; onSchedule: (id: string) => void
   onFiles: (id: string) => void; onDelete: (id: string) => void
 }) {
+  const isRunning = runningBots.has(bot.id)
   return (
     <div className="flex items-center gap-1.5">
-      <Button size="sm"
-        className={`flex-1 gap-1 text-xs h-8 ${!hasSubscription && !isAdmin ? 'opacity-60' : ''}`}
-        onClick={() => onRun(bot.id)}
-        disabled={runningBots.has(bot.id)}>
-        {!hasSubscription && !isAdmin ? <Lock size={11} /> : <Play size={11} />}
-        {runningBots.has(bot.id) ? 'Running...' : hasSubscription || isAdmin ? 'Run Now' : 'Locked'}
-      </Button>
-      {(hasSubscription || isAdmin) && (
-        <Button size="sm" variant="outline"
-          className="border-green-500/30 text-green-400 hover:text-green-300 hover:bg-green-500/10 h-8 gap-1 text-xs"
-          title="Live Monitor" onClick={() => onLive(bot.id)}>
-          <Radio size={11} /> Live
+      {/* Primary CTA: go to live monitor where user reviews params before starting */}
+      {hasSubscription || isAdmin ? (
+        <Button size="sm"
+          className={`flex-1 gap-1 text-xs h-8 ${isRunning ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+          onClick={() => onLive(bot.id)}>
+          <Monitor size={11} />
+          {isRunning ? 'Monitor →' : 'Monitor →'}
+        </Button>
+      ) : (
+        <Button size="sm" className="flex-1 gap-1 text-xs h-8 opacity-60" disabled>
+          <Lock size={11} /> Locked
         </Button>
       )}
       {isAdmin && (
@@ -494,24 +494,18 @@ export default function BotsPage() {
                 {/* Quick action strip */}
                 <div className="flex items-center gap-1 mt-auto">
                   <button
-                    onClick={() => handleRun(bot.id)}
-                    disabled={runningBots.has(bot.id)}
-                    title={hasSubscription || isAdmin ? 'Run Now' : 'Subscription required'}
+                    onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}
+                    title="Open Live Monitor"
                     className={`flex-1 flex items-center justify-center gap-1 h-7 rounded-lg text-[11px] font-medium transition-colors
                       ${hasSubscription || isAdmin
-                        ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
-                        : 'bg-gray-500/10 text-gray-500 cursor-not-allowed'}`}>
-                    {!hasSubscription && !isAdmin ? <Lock size={10} /> : <Play size={10} />}
-                    {runningBots.has(bot.id) ? '…' : 'Run'}
+                        ? runningBots.has(bot.id)
+                          ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                          : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                        : 'bg-gray-500/10 text-gray-500 cursor-not-allowed'}`}
+                    disabled={!hasSubscription && !isAdmin}>
+                    {!hasSubscription && !isAdmin ? <Lock size={10} /> : <Monitor size={10} />}
+                    {runningBots.has(bot.id) ? 'Live →' : 'Monitor →'}
                   </button>
-                  {(hasSubscription || isAdmin) && (
-                    <button
-                      onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}
-                      title="Live Monitor"
-                      className="flex items-center justify-center w-7 h-7 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors">
-                      <Radio size={11} />
-                    </button>
-                  )}
                   {isAdmin && (
                     <button
                       onClick={() => handleDelete(bot.id)}
@@ -580,24 +574,18 @@ export default function BotsPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 justify-end">
                         <button
-                          onClick={() => handleRun(bot.id)}
-                          disabled={runningBots.has(bot.id)}
-                          title={hasSubscription || isAdmin ? 'Run Now' : 'Subscription required'}
+                          onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}
+                          title={hasSubscription || isAdmin ? 'Open Live Monitor' : 'Subscription required'}
+                          disabled={!hasSubscription && !isAdmin}
                           className={`flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium transition-colors
                             ${hasSubscription || isAdmin
-                              ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                              ? runningBots.has(bot.id)
+                                ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                                : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
                               : 'bg-gray-500/10 text-gray-500 cursor-not-allowed'}`}>
-                          {!hasSubscription && !isAdmin ? <Lock size={10} /> : <Play size={10} />}
-                          {runningBots.has(bot.id) ? 'Running…' : 'Run'}
+                          {!hasSubscription && !isAdmin ? <Lock size={10} /> : <Monitor size={10} />}
+                          {runningBots.has(bot.id) ? 'Live →' : 'Monitor →'}
                         </button>
-                        {(hasSubscription || isAdmin) && (
-                          <button
-                            onClick={() => router.push(`/dashboard/bots/${bot.id}/live`)}
-                            title="Live Monitor"
-                            className="flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors">
-                            <Radio size={10} /> Live
-                          </button>
-                        )}
                         {isAdmin && (
                           <>
                             <button

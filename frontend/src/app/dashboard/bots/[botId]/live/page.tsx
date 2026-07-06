@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Header } from '@/components/layout/header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -441,9 +441,11 @@ function BotProcessLog({ lines, running, show, onToggle, onClear, onRefresh }: {
 
 export default function LiveBotPage() {
   const params = useParams()
+  const router = useRouter()
   const botId = params?.botId as string
 
   const [bot, setBot] = useState<any>(null)
+  const [allBots, setAllBots] = useState<any[]>([])
   const [running, setRunning] = useState(false)
   const [pid, setPid] = useState<number | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
@@ -492,6 +494,8 @@ export default function LiveBotPage() {
       }).catch(() => {})
     })
     setDiagnoseMode(localStorage.getItem('diagnose_mode') === 'true')
+    // Load all bots for the switcher
+    botsApi.list().then(r => setAllBots(r.data || [])).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -611,6 +615,33 @@ export default function LiveBotPage() {
   return (
     <div className="flex flex-col h-full">
       <Header title="Live Bot Monitor" />
+
+      {/* ── Bot switcher nav ── */}
+      {allBots.length > 1 && (
+        <div className="flex items-center gap-1 px-4 py-2 border-b border-[#1e2a3a] bg-[#080d14] overflow-x-auto">
+          <button
+            onClick={() => router.push('/dashboard/bots')}
+            className="shrink-0 text-xs text-gray-500 hover:text-gray-300 mr-2 flex items-center gap-1 transition-colors"
+          >
+            ← All Bots
+          </button>
+          <div className="w-px h-4 bg-[#1e2a3a] shrink-0 mr-2" />
+          {allBots.map(b => (
+            <button
+              key={b.id}
+              onClick={() => router.push(`/dashboard/bots/${b.id}/live`)}
+              className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                b.id === botId
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-[#1e2a3a] text-gray-400 hover:text-white hover:bg-[#2a3a4a]'
+              }`}
+            >
+              {b.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {showConfirm && bot && (
         <ConfirmStartModal
           bot={bot} params={tradeParams} timeParams={timeParams} paramDefs={paramDefs}
