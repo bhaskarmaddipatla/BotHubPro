@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { botRunnerApi, botsApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { Play, Square, Loader2, Info, AlertTriangle, X } from 'lucide-react'
+import { Play, Square, Loader2, Info, AlertTriangle, X, XCircle } from 'lucide-react'
 import BotScheduleCard from '@/components/bots/BotScheduleCard'
 import BotTradeLog, { countTradeGroups } from '@/components/bots/BotTradeLog'
 
@@ -104,8 +104,9 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
 }
 
 // ── Open Positions Card ───────────────────────────────────────────────────────
-function OpenPositionsCard({ positions }: { positions: any[] }) {
+function OpenPositionsCard({ positions, onClose }: { positions: any[]; onClose?: (label: string, conIds?: number[]) => void }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [confirming, setConfirming] = useState<number | null>(null)  // spread index being confirmed
 
   const legs = positions.filter(p => Number(p.position ?? p.qty ?? p.pos ?? 0) !== 0)
 
@@ -200,6 +201,7 @@ function OpenPositionsCard({ positions }: { positions: any[] }) {
                   <th className="text-left px-2 py-1.5">Instrument</th>
                   <th className="text-right px-3 py-1.5">Open P&L</th>
                   <th className="text-right px-3 py-1.5">Day P&L</th>
+                  {onClose && <th className="text-right px-3 py-1.5 w-24"></th>}
                 </tr>
               </thead>
               <tbody>
@@ -207,6 +209,8 @@ function OpenPositionsCard({ positions }: { positions: any[] }) {
                   const open = expanded.has(i)
                   const totPnl = spreadPnl(s)
                   const totDay = spreadDay(s)
+                  const label = spreadLabel(s)
+                  const conIds = [s.short, s.long].filter(Boolean).map((l: any) => l?.conId ?? l?.con_id).filter(Boolean) as number[]
                   return (
                     <>
                       {/* Spread summary row */}
@@ -216,9 +220,34 @@ function OpenPositionsCard({ positions }: { positions: any[] }) {
                         onClick={() => toggle(i)}
                       >
                         <td className="px-4 py-1.5 text-gray-500">{open ? '▾' : '▸'}</td>
-                        <td className="px-2 py-1.5 text-gray-200 font-medium">{spreadLabel(s)}</td>
+                        <td className="px-2 py-1.5 text-gray-200 font-medium">{label}</td>
                         <td className="px-3 py-1.5 text-right font-medium">{fmtPnl(totPnl)}</td>
                         <td className="px-3 py-1.5 text-right font-medium">{fmtPnl(totDay)}</td>
+                        {onClose && (
+                          <td className="px-3 py-1.5 text-right" onClick={e => e.stopPropagation()}>
+                            {confirming === i ? (
+                              <span className="flex items-center justify-end gap-1">
+                                <span className="text-[10px] text-red-400 mr-1">Close position?</span>
+                                <button
+                                  onClick={() => { onClose(label, conIds.length ? conIds : undefined); setConfirming(null) }}
+                                  className="px-2 py-0.5 rounded text-[10px] bg-red-500/30 text-red-300 hover:bg-red-500/50 font-medium">
+                                  Yes
+                                </button>
+                                <button
+                                  onClick={() => setConfirming(null)}
+                                  className="px-2 py-0.5 rounded text-[10px] bg-[#1e2a3a] text-gray-400 hover:text-white">
+                                  No
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setConfirming(i)}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors ml-auto">
+                                <XCircle size={10} /> Close Now
+                              </button>
+                            )}
+                          </td>
+                        )}
                       </tr>
                       {/* Expanded leg rows */}
                       {open && [s.short, s.long].filter(Boolean).map((leg, li) => {
@@ -236,6 +265,7 @@ function OpenPositionsCard({ positions }: { positions: any[] }) {
                             <td className="px-3 py-1 text-right text-gray-400">
                               {legLast(leg) !== undefined ? `last ${Number(legLast(leg)).toFixed(2)}` : '—'}
                             </td>
+                            {onClose && <td></td>}
                           </tr>
                         )
                       })}
@@ -465,6 +495,19 @@ export default function LiveBotPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [diagnoseMode, setDiagnoseMode] = useState(false)
   const [forceEntry, setForceEntry] = useState(false)
+  const [closingPosition, setClosingPosition] = useState(false)
+
+  const handleClosePosition = async (label: string, conIds?: number[]) => {
+    setClosingPosition(true)
+    try {
+      await botRunnerApi.closePosition(botId, label, conIds)
+      toast.success(`Close signal sent for "${label}". Bot will exit the position within ~10 seconds.`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to send close signal')
+    } finally {
+      setClosingPosition(false)
+    }
+  }
 
   const runDiagnose = async () => {
     setDiagLoading(true)
@@ -875,7 +918,7 @@ export default function LiveBotPage() {
           {/* Right: Positions + Trade Log */}
           <div className="flex flex-col gap-3">
             {/* Open Positions */}
-            <OpenPositionsCard positions={positions} />
+            <OpenPositionsCard positions={positions} onClose={handleClosePosition} />
 
             {/* Trade Log */}
             <Card className="bg-[#0f1623] border-[#1e2a3a] flex flex-col flex-[2]">

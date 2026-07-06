@@ -135,6 +135,8 @@ export const botRunnerApi = {
   positions: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/positions`),
   tradeLog: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/trade-log`),
   testConnection: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/test-connection`),
+  closePosition: (botId: string, instrument?: string, conIds?: number[]) =>
+    api.post(`/api/v1/bot-runner/${botId}/close-position`, { instrument, con_ids: conIds }),
 }
 
 export const telegramApi = {

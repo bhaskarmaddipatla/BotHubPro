@@ -317,6 +317,45 @@ async def start_bot(
     return {"status": "started", "pid": proc.pid, "execution_id": str(execution.id)}
 
 
+class ClosePositionRequest(BaseModel):
+    instrument: Optional[str] = None   # human-readable label (for logging / toast)
+    con_ids: Optional[list[int]] = None  # specific leg conIds; None = close all open positions
+
+
+@router.post("/{bot_id}/close-position")
+async def close_position_now(
+    bot_id: UUID,
+    body: ClosePositionRequest = ClosePositionRequest(),
+    current_user: User = Depends(require_verified),
+    db: Session = Depends(get_db),
+):
+    """Write a force_close.json signal to the bot's data directory.
+    The running bot subprocess checks for this file on each heartbeat (~10 s)
+    and submits market orders to close the specified position(s) via IBKR."""
+    bot = db.query(Bot).filter(Bot.id == bot_id, Bot.user_id == current_user.id).first()
+    if not bot:
+        bot = db.query(Bot).filter(Bot.id == bot_id, Bot.is_marketplace == True).first()
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    data_path = _data_dir(current_user.id, bot_id)
+    data_path.mkdir(parents=True, exist_ok=True)
+    signal_path = data_path / "force_close.json"
+
+    signal_path.write_text(json.dumps({
+        "requested_at": datetime.utcnow().isoformat(),
+        "instrument": body.instrument,
+        "con_ids": body.con_ids,
+    }, indent=2))
+
+    label = body.instrument or "all open positions"
+    return {
+        "status": "close_requested",
+        "instrument": label,
+        "message": f"Close signal written. Bot will close {label} on next heartbeat (~10 s).",
+    }
+
+
 @router.post("/{bot_id}/stop")
 async def stop_bot(
     bot_id: UUID,
