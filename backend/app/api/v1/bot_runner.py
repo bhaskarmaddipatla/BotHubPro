@@ -308,6 +308,7 @@ async def start_bot(
         bot_id=bot_id,
         status=ExecutionStatus.running,
         trigger=ExecutionTrigger.manual,
+        started_at=datetime.utcnow(),
         result_data={"pid": proc.pid},
     )
     db.add(execution)
@@ -390,6 +391,30 @@ async def stop_bot(
     )
     if execution:
         execution.status = ExecutionStatus.canceled
+        execution.completed_at = datetime.utcnow()
+
+        # Compute session P&L and trade count from trade_log.json
+        try:
+            tl_path = _data_dir(current_user.id, bot_id) / "trade_log.json"
+            if tl_path.exists():
+                trades = json.loads(tl_path.read_text())
+                cutoff = execution.started_at
+                session_trades = [
+                    t for t in trades
+                    if cutoff is None or (t.get("timestamp", t.get("time", "")) >= cutoff.isoformat()[:19])
+                ]
+                exits = [t for t in session_trades if t.get("action") == "EXIT" and t.get("pnl") is not None]
+                if exits:
+                    session_pnl = sum(float(t["pnl"]) for t in exits)
+                    execution.profit_loss = round(session_pnl, 2)
+                execution.result_data = {
+                    **(execution.result_data or {}),
+                    "trade_count": len([t for t in session_trades if t.get("action") == "ENTRY"]),
+                    "exit_count": len(exits),
+                }
+        except Exception:
+            pass
+
         db.commit()
 
     return {"status": "stopped"}
