@@ -251,7 +251,7 @@ export default function RetrospectivePage() {
       `}</style>
 
       <div className="retro-page">
-        <Header />
+        <Header title="Retrospective" />
         <div className="retro-inner">
 
           {/* Page header */}
