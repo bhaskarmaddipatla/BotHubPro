@@ -140,6 +140,53 @@ def _is_running(pid: int) -> bool:
         return False
 
 
+def _cleanup_stale_session_files(data_path: Path) -> None:
+    """Remove state files left over from a previous trading day so the bot
+    starts each session with a clean slate."""
+    today = datetime.utcnow().date()
+
+    # active_plan.json: contains the entry_time of the last trade plan.
+    # If it's from a prior calendar day, delete it.
+    plan_file = data_path / "active_plan.json"
+    if plan_file.exists():
+        try:
+            plan = json.loads(plan_file.read_text())
+            entry_time_str = plan.get("entry_time", "")
+            if entry_time_str:
+                entry_date = datetime.fromisoformat(entry_time_str).date()
+                if entry_date < today:
+                    plan_file.unlink()
+        except Exception:
+            plan_file.unlink(missing_ok=True)
+
+    # force_close.json: signal file from a prior session — always delete on start.
+    force_close = data_path / "force_close.json"
+    force_close.unlink(missing_ok=True)
+
+    # positions.json: if it exists and contains only expired options, clear it.
+    # We detect expiry by checking lastTradeDateOrContractMonth fields < today.
+    pos_file = data_path / "positions.json"
+    if pos_file.exists():
+        try:
+            positions = json.loads(pos_file.read_text())
+            stale = []
+            for p in positions:
+                sym = p.get("localSymbol", "")
+                # SPXW  260706P07520000 — date is chars 6-12 (YYMMDD)
+                # Extract 6-digit date from localSymbol e.g. "260706"
+                import re
+                m = re.search(r'(\d{6})[PC]', sym)
+                if m:
+                    exp_str = m.group(1)
+                    exp_date = datetime.strptime("20" + exp_str, "%Y%m%d").date()
+                    if exp_date < today:
+                        stale.append(sym)
+            if stale and len(stale) == len(positions):
+                pos_file.write_text("[]")
+        except Exception:
+            pass
+
+
 class StartBotRequest(BaseModel):
     trade_params: dict = {}
 
@@ -187,6 +234,11 @@ async def start_bot(
 
     config_path = data_path / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
+
+    # Clean up stale state files from previous trading sessions.
+    # active_plan.json holds the prior day's trade plan and causes the bot to
+    # think there's still an open position. Delete it if it's from a previous day.
+    _cleanup_stale_session_files(data_path)
 
     # Determine runner script
     bot_files_dir = Path(f"/app/bot_files/{current_user.id}/{bot_id}")
