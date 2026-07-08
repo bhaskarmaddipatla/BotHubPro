@@ -178,18 +178,19 @@ export default function RetrospectivePage() {
     <>
       <style>{`
         .retro-page { background: #0b0f1a; min-height: 100vh; }
-        .retro-inner { max-width: 880px; margin: 0 auto; padding: 32px 24px 80px; }
+        .retro-inner { width: 100%; max-width: 960px; margin: 0 auto; padding: clamp(16px, 3vw, 32px) clamp(12px, 3vw, 24px) 80px; box-sizing: border-box; }
 
         .retro-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #475569; margin-bottom: 6px; }
-        .retro-title { font-size: 20px; font-weight: 700; color: #f1f5f9; letter-spacing: -.02em; line-height: 1.2; }
+        .retro-title { font-size: clamp(16px, 2.5vw, 20px); font-weight: 700; color: #f1f5f9; letter-spacing: -.02em; line-height: 1.2; }
         .retro-meta { font-size: 11px; color: #475569; font-family: ui-monospace,monospace; display:flex; gap:16px; flex-wrap:wrap; margin-top: 5px; }
 
         .retro-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin: 24px 0; }
-        @media(max-width:600px){ .retro-strip { grid-template-columns:repeat(2,1fr); } }
-        .retro-stat { background:#111827; border:1px solid #1e2d42; border-radius:6px; padding:12px 14px; }
+        @media(max-width:700px){ .retro-strip { grid-template-columns:repeat(2,1fr); } }
+        @media(max-width:400px){ .retro-strip { grid-template-columns:1fr; } }
+        .retro-stat { background:#111827; border:1px solid #1e2d42; border-radius:6px; padding:12px 14px; min-width: 0; }
         .retro-stat-label { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#475569; margin-bottom:5px; }
-        .retro-stat-val { font-size:20px; font-weight:700; font-family:ui-monospace,monospace; font-variant-numeric:tabular-nums; color:#f1f5f9; letter-spacing:-.02em; line-height:1; }
-        .retro-stat-sub { font-size:10px; color:#475569; margin-top:3px; font-family:ui-monospace,monospace; }
+        .retro-stat-val { font-size:clamp(16px,2vw,20px); font-weight:700; font-family:ui-monospace,monospace; font-variant-numeric:tabular-nums; color:#f1f5f9; letter-spacing:-.02em; line-height:1; }
+        .retro-stat-sub { font-size:10px; color:#475569; margin-top:3px; font-family:ui-monospace,monospace; word-break:break-word; }
         .pos { color:#34d399 !important; } .neg { color:#f87171 !important; } .warn { color:#fbbf24 !important; } .acc { color:#60a5fa !important; }
 
         .section-head { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#60a5fa; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
@@ -208,8 +209,8 @@ export default function RetrospectivePage() {
         .bot-row-val { font-family:ui-monospace,monospace; font-variant-numeric:tabular-nums; font-weight:600; color:#e2e8f0; }
 
         /* Table */
-        .tbl-wrap { overflow-x:auto; }
-        table { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
+        .tbl-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; width:100%; }
+        table { width:100%; min-width:520px; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
         th { text-align:left; font-size:9.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#475569; padding:7px 10px; border-bottom:1px solid #1e2d42; white-space:nowrap; }
         td { padding:8px 10px; border-bottom:1px solid #111827; vertical-align:middle; }
         tr:last-child td { border-bottom:none; }
@@ -255,7 +256,7 @@ export default function RetrospectivePage() {
         <div className="retro-inner">
 
           {/* Page header */}
-          <div style={{ borderBottom: '1px solid #1e2d42', paddingBottom: 20, marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ borderBottom: '1px solid #1e2d42', paddingBottom: 20, marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', minWidth: 0 }}>
             <div>
               <div className="retro-eyebrow">BotHub Pro · Admin</div>
               <div className="retro-title">Trade Retrospective</div>
