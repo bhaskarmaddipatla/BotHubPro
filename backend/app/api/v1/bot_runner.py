@@ -342,7 +342,9 @@ async def start_bot(
 
     log_path = data_path / "bot.log"
     try:
-        log_file = open(log_path, "w", buffering=1)
+        log_file = open(log_path, "a", buffering=1)
+        session_sep = f"\n{'='*60}\nSESSION START: {datetime.utcnow().isoformat()}Z\n{'='*60}\n"
+        log_file.write(session_sep)
         proc = subprocess.Popen(
             ["python", "-u", str(runner_path), "--config", str(config_path)],
             env=env,
@@ -795,6 +797,56 @@ async def trade_event(
 
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     bot_name = bot.name if bot else str(bot_id)
+
+    # Always persist the trade event to trade_log.json regardless of Telegram config.
+    # This is the backend backup capture — the bot subprocess also writes to the file
+    # directly, but if that write fails (serialization error, path issue, etc.) this
+    # ensures trades are never silently lost.
+    try:
+        data_path = _data_dir(current_user.id, bot_id)
+        tl_path = data_path / "trade_log.json"
+        trades = []
+        if tl_path.exists():
+            try:
+                trades = json.loads(tl_path.read_text())
+                if not isinstance(trades, list):
+                    trades = []
+            except Exception:
+                trades = []
+        entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": event.action,
+            "symbol": event.symbol,
+            "strike": event.strike,
+            "expiry": event.expiry,
+            "credit": event.credit,
+            "debit": event.debit,
+            "contracts": event.contracts,
+            "pnl": event.pnl,
+            "price": event.price,
+            "spx_price": event.spx_price,
+            "vix": event.vix,
+            "note": event.note,
+            "source": "trade_event_api",
+        }
+        # Avoid duplicates: skip if same action+strike+expiry already logged within last 60s
+        from datetime import timezone
+        now_ts = datetime.utcnow().replace(tzinfo=timezone.utc)
+        is_dup = False
+        for t in trades[-10:]:
+            if t.get("action") == entry["action"] and t.get("strike") == entry["strike"] and t.get("expiry") == entry["expiry"]:
+                try:
+                    prev_ts = datetime.fromisoformat(t["timestamp"].replace("Z", "+00:00"))
+                    if abs((now_ts - prev_ts).total_seconds()) < 60:
+                        is_dup = True
+                        break
+                except Exception:
+                    pass
+        if not is_dup:
+            trades.append(entry)
+            tl_path.write_text(json.dumps(trades, indent=2))
+    except Exception:
+        pass  # Never let trade log write failure break the endpoint
 
     user = db.query(User).filter(User.id == current_user.id).first()
     if not user or not user.telegram_chat_id:
