@@ -135,6 +135,28 @@ SPX_BOTS = [
         "is_marketplace": True,
         "marketplace_description": "Fades the SPX premarket gap using credit spreads. Historically gaps fill 65%+ of the time within the first hour.",
     },
+    {
+        "name": "SPX Swing Trade",
+        "description": "Multi-DTE SPX credit spread swing trade bot. Sells OTM credit spreads at 7–45 DTE and manages them with AI-assisted exit decisions. Takes profit at 50% of credit; stops at 2× credit received. Monitors positions in real time with adaptive poll intervals by DTE and proximity to short strike.",
+        "category": BotCategory.credit_spread,
+        "risk_level": RiskLevel.medium,
+        "configuration": {
+            "entry_file": "bots/swing_trade/runner.py",
+            "strategy": "swing_trade",
+            "symbol": "SPX",
+            "dte_min": 7, "dte_max": 45,
+            "spread_width": 25,
+            "short_strike_delta": 0.16,
+            "profit_target_pct": 50,
+            "stop_loss_pct": 200,
+            "max_trades_per_week": 2,
+            "entry_start": "09:45", "entry_end": "15:00",
+            **GIT_ENGINE,
+        },
+        "schedule_cron": "45 9 * * 1-5",
+        "is_marketplace": True,
+        "marketplace_description": "Multi-DTE SPX credit spread swing trader with AI-assisted exit management. Holds positions 7–45 DTE, monitors with adaptive polling (15 min normal → 30 s critical), and surfaces recommended actions (take profit, stop loss, exit now) via an embedded swing monitor dashboard.",
+    },
 ]
 
 

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { botRunnerApi, botsApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { Play, Square, Loader2, Info, AlertTriangle, X, XCircle } from 'lucide-react'
+import { Play, Square, Loader2, Info, AlertTriangle, X, XCircle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp } from 'lucide-react'
 import BotScheduleCard from '@/components/bots/BotScheduleCard'
 import BotTradeLog, { countTradeGroups } from '@/components/bots/BotTradeLog'
 
@@ -46,6 +46,7 @@ const categoryLabels: Record<string, string> = {
   iron_fly: 'Iron Fly', butterfly: 'Butterfly',
   pmcc: 'PMCC', calendar: 'Calendar', custom: 'Custom',
   spx_0dte_ai: 'AI Credit Spread',
+  swing_trade: 'Swing Trade',
 }
 
 const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; min?: number; max?: number; step?: number; type?: 'time'; tooltip: string }[]> = {
@@ -93,6 +94,18 @@ const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; mi
     { key: 'entry_start',        label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
     { key: 'entry_end',          label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
+  swing_trade: [
+    { key: 'contracts',          label: 'Contracts',         min: 1,    max: 20,    step: 1,    tooltip: 'Number of spread contracts per entry' },
+    { key: 'spread_width',       label: 'Spread Width',      unit: 'pts', min: 5,  max: 100,   step: 5,    tooltip: 'Distance between long and short strike in index points' },
+    { key: 'short_strike_delta', label: 'Short Δ',           min: 0.05, max: 0.30, step: 0.01, tooltip: 'Target delta for the short leg (0.16 = 16Δ, further OTM = lower delta)' },
+    { key: 'dte_min',            label: 'Min DTE',           min: 1,    max: 45,    step: 1,    tooltip: 'Minimum days-to-expiry when entering a new position' },
+    { key: 'dte_max',            label: 'Max DTE',           min: 7,    max: 90,    step: 1,    tooltip: 'Maximum days-to-expiry when entering a new position' },
+    { key: 'profit_target_pct',  label: 'Take Profit',       unit: '% of credit', min: 25, max: 75, step: 5, tooltip: 'Close when P&L reaches this % of opening credit received' },
+    { key: 'stop_loss_pct',      label: 'Stop Loss',         unit: '% of credit', min: 100, max: 300, step: 25, tooltip: 'Exit when loss equals this % of credit (200 = 2× credit)' },
+    { key: 'max_trades_per_week',label: 'Max Trades/Week',   min: 1,    max: 5,     step: 1,    tooltip: 'Maximum new entries allowed per trading week' },
+    { key: 'entry_start',        label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
+    { key: 'entry_end',          label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
+  ],
 }
 
 const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
@@ -101,6 +114,7 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150 },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
   spx_0dte_ai:   { contracts: 2, spread_width: 10, short_strike_delta: 0.20, take_profit_pct: 50, stop_loss_pct: 100, max_trades_per_day: 4 },
+  swing_trade:   { contracts: 1, spread_width: 25, short_strike_delta: 0.16, dte_min: 7, dte_max: 45, profit_target_pct: 50, stop_loss_pct: 200, max_trades_per_week: 2 },
 }
 
 // ── Open Positions Card ───────────────────────────────────────────────────────
@@ -466,6 +480,262 @@ function BotProcessLog({ lines, running, show, onToggle, onClear, onRefresh }: {
         </CardContent>
       )}
     </Card>
+  )
+}
+
+// ── Swing Monitor Panel ───────────────────────────────────────────────────────
+const MODE_COLORS: Record<string, string> = {
+  critical: 'text-red-400 bg-red-500/10 border-red-500/30',
+  fast:     'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
+  normal:   'text-green-400 bg-green-500/10 border-green-500/30',
+}
+const ACTION_COLORS: Record<string, string> = {
+  take_profit:    'text-green-400',
+  stop_loss:      'text-red-400',
+  exit_now:       'text-red-500 font-bold',
+  eod_close:      'text-orange-400',
+  consider_close: 'text-yellow-400',
+  review:         'text-purple-400',
+  hold:           'text-gray-400',
+}
+const URGENCY_COLORS: Record<string, string> = {
+  critical: 'bg-red-500/20 text-red-400',
+  high:     'bg-orange-500/20 text-orange-400',
+  medium:   'bg-yellow-500/20 text-yellow-400',
+  low:      'bg-blue-500/20 text-blue-400',
+  none:     'bg-gray-500/20 text-gray-400',
+}
+
+function SwingMonitorPanel({ botId }: { botId: string }) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [approving, setApproving] = useState<Record<string, boolean>>({})
+  const [showExitLog, setShowExitLog] = useState(false)
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+  const fetchDashboard = useCallback(async () => {
+    try {
+      const { api } = await import('@/lib/api')
+      const r = await api.get(`/api/v1/swing-monitor/${botId}/dashboard`)
+      setData(r.data)
+    } catch { /* no positions yet */ } finally { setLoading(false) }
+  }, [botId])
+
+  useEffect(() => { fetchDashboard(); const t = setInterval(fetchDashboard, 15000); return () => clearInterval(t) }, [fetchDashboard])
+
+  const handleApprove = async (posId: string) => {
+    setApproving(a => ({ ...a, [posId]: true }))
+    try {
+      const { api } = await import('@/lib/api')
+      await api.post(`/api/v1/swing-monitor/${botId}/approve-exit/${posId}`)
+      await fetchDashboard()
+      toast.success('Exit approved — bot will execute on next cycle')
+    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Approval failed') }
+    finally { setApproving(a => ({ ...a, [posId]: false })) }
+  }
+
+  const handleCancelApproval = async (posId: string) => {
+    setApproving(a => ({ ...a, [posId]: true }))
+    try {
+      const { api } = await import('@/lib/api')
+      await api.delete(`/api/v1/swing-monitor/${botId}/approve-exit/${posId}`)
+      await fetchDashboard()
+      toast.success('Exit approval cancelled')
+    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Cancel failed') }
+    finally { setApproving(a => ({ ...a, [posId]: false })) }
+  }
+
+  if (loading) return <div className="text-xs text-gray-500 py-4 text-center">Loading swing monitor…</div>
+  if (!data) return (
+    <Card className="bg-[#0f1623] border-[#1e2a3a]">
+      <CardContent className="py-6 text-center text-xs text-gray-500">
+        No swing monitor data yet. Start the bot to begin tracking positions.
+      </CardContent>
+    </Card>
+  )
+
+  const { summary, positions, exit_log, ai_callouts, monitor_state } = data
+  const overallMode = summary?.overall_monitoring_mode || 'normal'
+  const modeColor = MODE_COLORS[overallMode] || MODE_COLORS.normal
+
+  return (
+    <div className="space-y-3">
+      {/* Summary strip */}
+      <div className={`rounded-xl border px-4 py-3 flex flex-wrap gap-4 items-center ${modeColor}`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${overallMode === 'critical' ? 'bg-red-400 animate-pulse' : overallMode === 'fast' ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`} />
+          <span className="text-xs font-semibold uppercase tracking-wide">{overallMode} mode</span>
+        </div>
+        <div className="text-xs text-gray-400">{summary?.total_positions ?? 0} position{summary?.total_positions !== 1 ? 's' : ''}</div>
+        <div className={`text-xs font-mono font-semibold ${(summary?.total_pnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          Total P&L: {(summary?.total_pnl ?? 0) >= 0 ? '+' : ''}${(summary?.total_pnl ?? 0).toFixed(2)}
+        </div>
+        <div className="text-xs text-gray-500 font-mono">Target: ${(summary?.total_target_pnl ?? 0).toFixed(2)}</div>
+        {data.spx_price > 0 && <div className="text-xs text-gray-500 font-mono">SPX {data.spx_price.toFixed(2)}</div>}
+        <div className="ml-auto text-xs text-gray-600">
+          {data.generated_at ? new Date(data.generated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+        </div>
+      </div>
+
+      {/* Position cards */}
+      {(positions || []).length === 0 && (
+        <Card className="bg-[#0f1623] border-[#1e2a3a]">
+          <CardContent className="py-4 text-center text-xs text-gray-500">No open positions</CardContent>
+        </Card>
+      )}
+      {(positions || []).map((pos: any, idx: number) => {
+        const posId = pos.id || pos.position_id || String(idx)
+        const pnlPos = (pos.pnl ?? 0) >= 0
+        const action = pos.recommended_action || {}
+        const mode = pos.monitoring_mode || 'normal'
+        const pnlPct = pos.pnl_pct ?? 0
+        const progressPct = Math.min(100, Math.max(0, pnlPct))
+        const progressColor = pnlPct >= 50 ? 'bg-green-500' : pnlPct >= 35 ? 'bg-yellow-500' : 'bg-blue-500'
+
+        return (
+          <Card key={posId} className={`bg-[#0f1623] border ${mode === 'critical' ? 'border-red-500/40' : mode === 'fast' ? 'border-yellow-500/30' : 'border-[#1e2a3a]'}`}>
+            <CardContent className="p-4 space-y-3">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-white">
+                    {pos.symbol || 'SPX'} {pos.spread_type || pos.type || 'Credit Spread'}
+                    {pos.short_strike && <span className="text-gray-400 text-xs ml-2">@{pos.short_strike}/{pos.long_strike}</span>}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    DTE {pos.dte ?? '—'} · {pos.contracts ?? 1} contract{(pos.contracts ?? 1) !== 1 ? 's' : ''}
+                    {pos.expiration && <span className="ml-2">Exp {pos.expiration}</span>}
+                  </div>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${MODE_COLORS[mode] || MODE_COLORS.normal}`}>
+                  {mode}
+                </span>
+              </div>
+
+              {/* P&L row */}
+              <div className="grid grid-cols-3 gap-3 text-xs">
+                <div>
+                  <div className="text-gray-500">P&L</div>
+                  <div className={`font-mono font-semibold ${pnlPos ? 'text-green-400' : 'text-red-400'}`}>
+                    {pnlPos ? '+' : ''}${(pos.pnl ?? 0).toFixed(2)} <span className="text-gray-400">({pnlPos ? '+' : ''}{pnlPct.toFixed(1)}%)</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Target</div>
+                  <div className="font-mono text-green-300">${(pos.target_pnl ?? 0).toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Stop</div>
+                  <div className="font-mono text-red-300">${Math.abs(pos.stop_pnl ?? 0).toFixed(2)} loss</div>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>0%</span>
+                  <span className={progressColor === 'bg-green-500' ? 'text-green-400' : 'text-gray-400'}>{pnlPct.toFixed(1)}% of target</span>
+                  <span>50%</span>
+                </div>
+                <div className="h-1.5 bg-[#1e2a3a] rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${progressColor}`} style={{ width: `${progressPct}%` }} />
+                </div>
+              </div>
+
+              {/* Distance + next check */}
+              <div className="flex items-center gap-4 text-xs text-gray-400">
+                {pos.distance_to_short_strike != null && (
+                  <span>Strike distance: <span className="text-white font-mono">{pos.distance_to_short_strike.toFixed(1)} pts ({pos.distance_to_short_strike_pct?.toFixed(1)}%)</span></span>
+                )}
+                {pos.poll_interval_seconds != null && (
+                  <span>Next check: <span className="text-white font-mono">{pos.poll_interval_seconds < 60 ? `${pos.poll_interval_seconds}s` : `${Math.round(pos.poll_interval_seconds / 60)}m`}</span></span>
+                )}
+              </div>
+
+              {/* Recommended action */}
+              <div className={`rounded-lg px-3 py-2 flex items-center justify-between gap-3 bg-[#0a0e1a] border border-[#1e2a3a]`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  {(action.urgency === 'critical' || action.urgency === 'high') ? <TrendingDown size={14} className="text-red-400 shrink-0" /> :
+                   action.action === 'hold' ? <Minus size={14} className="text-gray-400 shrink-0" /> :
+                   <TrendingUp size={14} className="text-yellow-400 shrink-0" />}
+                  <div className="min-w-0">
+                    <span className={`text-xs font-semibold ${ACTION_COLORS[action.action] || 'text-gray-400'}`}>
+                      {(action.action || 'hold').replace(/_/g, ' ').toUpperCase()}
+                    </span>
+                    {action.reason && <div className="text-xs text-gray-500 truncate">{action.reason}</div>}
+                  </div>
+                </div>
+                {action.urgency && action.urgency !== 'none' && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${URGENCY_COLORS[action.urgency] || URGENCY_COLORS.none}`}>
+                    {action.urgency}
+                  </span>
+                )}
+              </div>
+
+              {/* Approve / Cancel buttons */}
+              {action.action && action.action !== 'hold' && (
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" variant="outline"
+                    className="flex-1 h-7 text-xs border-green-500/40 text-green-400 hover:bg-green-500/10"
+                    onClick={() => handleApprove(posId)} disabled={approving[posId]}>
+                    {approving[posId] ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                    Approve Exit
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    className="flex-1 h-7 text-xs border-[#1e2a3a] text-gray-400 hover:bg-[#1e2a3a]"
+                    onClick={() => handleCancelApproval(posId)} disabled={approving[posId]}>
+                    Hold
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })}
+
+      {/* AI Callouts */}
+      {(ai_callouts || []).length > 0 && (
+        <Card className="bg-[#0f1623] border-purple-500/20">
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm text-purple-300">AI Advisor</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-2">
+            {(ai_callouts || []).slice(-3).reverse().map((c: any, i: number) => (
+              <div key={i} className="bg-[#0a0e1a] rounded-lg px-3 py-2 text-xs text-gray-300">
+                {c.timestamp && <div className="text-gray-600 mb-0.5">{new Date(c.timestamp).toLocaleTimeString()}</div>}
+                {c.recommendation || c.message || JSON.stringify(c)}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Exit Decision Log */}
+      {(exit_log || []).length > 0 && (
+        <Card className="bg-[#0f1623] border-[#1e2a3a]">
+          <CardHeader className="pb-1 pt-3 px-4 cursor-pointer" onClick={() => setShowExitLog(v => !v)}>
+            <CardTitle className="text-sm text-white flex items-center justify-between">
+              <span>Exit Decision Log <span className="text-gray-500 font-normal text-xs ml-1">({exit_log.length})</span></span>
+              {showExitLog ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </CardTitle>
+          </CardHeader>
+          {showExitLog && (
+            <CardContent className="px-4 pb-4">
+              <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                {[...(exit_log || [])].reverse().map((e: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-xs py-1 border-b border-[#1e2a3a]/50 last:border-0">
+                    <span className="text-gray-600 shrink-0">{e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—'}</span>
+                    <span className={ACTION_COLORS[e.action] || 'text-gray-400'}>{e.action?.replace(/_/g, ' ') || '—'}</span>
+                    <span className="text-gray-500 truncate">{e.reason || e.message || ''}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+    </div>
   )
 }
 
@@ -917,8 +1187,13 @@ export default function LiveBotPage() {
 
           {/* Right: Positions + Trade Log */}
           <div className="flex flex-col gap-3">
-            {/* Open Positions */}
+            {/* Swing Monitor Panel (swing_trade strategy only) */}
+            {bot?.configuration?.strategy === 'swing_trade' ? (
+              <SwingMonitorPanel botId={botId} />
+            ) : (
+            /* Open Positions */
             <OpenPositionsCard positions={positions} onClose={handleClosePosition} />
+            )}
 
             {/* Trade Log */}
             <Card className="bg-[#0f1623] border-[#1e2a3a] flex flex-col flex-[2]">
