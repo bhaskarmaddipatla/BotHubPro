@@ -10,6 +10,7 @@ from app.api.v1 import broker_credentials, bot_runner
 from app.api.v1 import telegram as telegram_router
 from app.api.v1 import bot_schedule as bot_schedule_router
 from app.api.v1 import retrospective as retrospective_router
+from app.api.v1 import swing_monitor as swing_monitor_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ app.include_router(bot_runner.router, prefix="/api/v1/bot-runner", tags=["bot-ru
 app.include_router(telegram_router.router, prefix="/api/v1/telegram", tags=["Telegram"])
 app.include_router(bot_schedule_router.router, prefix="/api/v1", tags=["bot-schedule"])
 app.include_router(retrospective_router.router, prefix="/api/v1/retrospective", tags=["Retrospective"])
+app.include_router(swing_monitor_router.router, prefix="/api/v1/swing-monitor", tags=["Swing Monitor"])
 
 
 @app.get("/health")
