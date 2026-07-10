@@ -212,7 +212,7 @@ async def start_bot(
     # Assign unique IBKR client_id per strategy so multiple bots can connect simultaneously.
     _strategy_client_ids = {
         "credit_spread": 1, "iron_fly": 1, "iron_condor": 1, "butterfly": 1,
-        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4,
+        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4, "swing_trade": 5,
     }
     _bot_cfg = bot.configuration or {}
     _strategy = (body.trade_params or {}).get("strategy") or _bot_cfg.get("strategy", "credit_spread")
@@ -308,7 +308,7 @@ async def start_bot(
     # simultaneously. Mirrors STRATEGY_CLIENT_IDS in trading-bots runner.py.
     _strategy_client_ids = {
         "credit_spread": 1, "iron_fly": 1, "iron_condor": 1, "butterfly": 1,
-        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4,
+        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4, "swing_trade": 5,
     }
     strategy = config.get("strategy", "credit_spread")
     effective_client_id = _strategy_client_ids.get(strategy, config.get("ibkr_client_id") or 1)
