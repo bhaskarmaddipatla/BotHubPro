@@ -210,11 +210,11 @@ async def start_bot(
     data_path.mkdir(parents=True, exist_ok=True)
 
     # Assign a unique IBKR clientId per bot instance via bot_id hash.
-    # Range 1–900; creds.get("client_id") overrides for manual assignment.
+    # Do NOT use creds.get("client_id") — that is a shared credential value
+    # (typically 1) and would cause all bots to conflict on the same clientId.
     _bot_cfg = bot.configuration or {}
     _strategy = (body.trade_params or {}).get("strategy") or _bot_cfg.get("strategy", "credit_spread")
-    _auto_client_id = (int(str(bot_id).replace("-", ""), 16) % 899) + 1
-    _client_id = creds.get("client_id") or _auto_client_id
+    _client_id = (int(str(bot_id).replace("-", ""), 16) % 899) + 1
 
     config = {
         "broker": "ibkr",
