@@ -220,7 +220,6 @@ async def start_bot(
         "broker": "ibkr",
         "ibkr_host": creds.get("host", "host.docker.internal"),
         "ibkr_port": creds.get("port", 7497),
-        "ibkr_client_id": _client_id,
         "ibkr_account": creds.get("account", ""),
         "paper_trading": creds.get("paper_trading", True),
         "ibkr_allow_trading": True,
@@ -228,6 +227,8 @@ async def start_bot(
         # Merge bot base config then user-supplied trade params on top
         **_bot_cfg,
         **(body.trade_params or {}),
+        # Must come last — bot DB record or trade_params may contain a stale ibkr_client_id=1
+        "ibkr_client_id": _client_id,
     }
 
     config_path = data_path / "config.json"
