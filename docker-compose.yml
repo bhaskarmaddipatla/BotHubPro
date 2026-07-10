@@ -58,6 +58,10 @@ services:
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-YourBotHubProBot}
       BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["http://localhost:3000","http://localhost:3001"]}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -81,6 +85,10 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
