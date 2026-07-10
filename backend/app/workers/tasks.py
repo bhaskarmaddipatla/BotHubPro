@@ -66,20 +66,12 @@ def execute_bot_task(self, execution_id: str, bot_id: str, user_id: str):
             except Exception as e:
                 add_log(f"Warning: Could not load IBKR credentials: {e}", "WARN")
 
-        # Assign unique IBKR client_id per strategy so multiple bots can connect simultaneously.
-        # Mirrors STRATEGY_CLIENT_IDS in trading-bots/bots/engine/runner.py.
-        _strategy_client_ids = {
-            "credit_spread": 1,
-            "iron_fly": 1,
-            "iron_condor": 1,
-            "butterfly": 1,
-            "gamma_bias": 2,
-            "premarket_gap": 3,
-            "spx_0dte_ai": 4,
-        }
-        strategy = config.get("strategy", "credit_spread")
-        env["IBKR_CLIENT_ID"] = str(_strategy_client_ids.get(strategy, 1))
-        add_log(f"IBKR client_id={env['IBKR_CLIENT_ID']} assigned for strategy={strategy}")
+        # Unique clientId per bot via bot_id hash (range 1–900).
+        # config.json written by /run already has this; use it directly.
+        auto_client_id = (int(bot_id.replace("-", ""), 16) % 899) + 1
+        effective_client_id = config.get("ibkr_client_id") or auto_client_id
+        env["IBKR_CLIENT_ID"] = str(effective_client_id)
+        add_log(f"IBKR client_id={effective_client_id} assigned for bot_id={bot_id}")
 
         env["BOT_ID"] = bot_id
         env["EXECUTION_ID"] = execution_id

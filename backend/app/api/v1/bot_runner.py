@@ -209,14 +209,12 @@ async def start_bot(
     data_path = _data_dir(current_user.id, bot_id)
     data_path.mkdir(parents=True, exist_ok=True)
 
-    # Assign unique IBKR client_id per strategy so multiple bots can connect simultaneously.
-    _strategy_client_ids = {
-        "credit_spread": 1, "iron_fly": 1, "iron_condor": 1, "butterfly": 1,
-        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4, "swing_trade": 5,
-    }
+    # Assign a unique IBKR clientId per bot instance via bot_id hash.
+    # Range 1–900; creds.get("client_id") overrides for manual assignment.
     _bot_cfg = bot.configuration or {}
     _strategy = (body.trade_params or {}).get("strategy") or _bot_cfg.get("strategy", "credit_spread")
-    _client_id = _strategy_client_ids.get(_strategy, creds.get("client_id", 1))
+    _auto_client_id = (int(str(bot_id).replace("-", ""), 16) % 899) + 1
+    _client_id = creds.get("client_id") or _auto_client_id
 
     config = {
         "broker": "ibkr",
@@ -304,14 +302,8 @@ async def start_bot(
 
     backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
-    # Assign a unique IBKR client_id per strategy so multiple bots can connect
-    # simultaneously. Mirrors STRATEGY_CLIENT_IDS in trading-bots runner.py.
-    _strategy_client_ids = {
-        "credit_spread": 1, "iron_fly": 1, "iron_condor": 1, "butterfly": 1,
-        "gamma_bias": 2, "premarket_gap": 3, "spx_0dte_ai": 4, "swing_trade": 5,
-    }
-    strategy = config.get("strategy", "credit_spread")
-    effective_client_id = _strategy_client_ids.get(strategy, config.get("ibkr_client_id") or 1)
+    # clientId was already written into config.json above; read it back directly.
+    effective_client_id = config.get("ibkr_client_id") or (int(str(bot_id).replace("-", ""), 16) % 899) + 1
 
     env = os.environ.copy()
     env.update({
