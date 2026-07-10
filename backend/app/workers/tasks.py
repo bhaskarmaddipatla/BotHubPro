@@ -67,9 +67,10 @@ def execute_bot_task(self, execution_id: str, bot_id: str, user_id: str):
                 add_log(f"Warning: Could not load IBKR credentials: {e}", "WARN")
 
         # Unique clientId per bot via bot_id hash (range 1–900).
-        # config.json written by /run already has this; use it directly.
-        auto_client_id = (int(bot_id.replace("-", ""), 16) % 899) + 1
-        effective_client_id = config.get("ibkr_client_id") or auto_client_id
+        # Never read ibkr_client_id from bot.configuration — it may contain a
+        # stale value of 1 from before the UUID-hash approach. Always derive
+        # from bot_id so each bot gets a deterministic, conflict-free clientId.
+        effective_client_id = (int(bot_id.replace("-", ""), 16) % 899) + 1
         env["IBKR_CLIENT_ID"] = str(effective_client_id)
         add_log(f"IBKR client_id={effective_client_id} assigned for bot_id={bot_id}")
 
