@@ -30,4 +30,6 @@ pandas==2.2.3
 pytz==2024.1
 # IBKR connectivity — required by bot runner scripts
 ib_insync==0.9.86
+# AI SDK — required by swing bot AI analysts
+anthropic>=0.40.0
 
