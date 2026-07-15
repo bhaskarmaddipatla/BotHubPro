@@ -498,6 +498,23 @@ async def bot_logs(
         return {"lines": [], "total_lines": 0, "error": str(e)}
 
 
+def _read_broker_connection(user_id, bot_id) -> Optional[dict]:
+    """Read connection_status.json written by the bot when its broker link drops.
+
+    Expected shape is at least {"connection": "DISCONNECTED"}; any extra fields
+    (timestamp, reason, ...) are passed through untouched. Absent or unparseable
+    file means no alert.
+    """
+    path = _data_dir(user_id, bot_id) / "connection_status.json"
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return None
+    if isinstance(data, dict) and isinstance(data.get("connection"), str):
+        return data
+    return None
+
+
 @router.get("/{bot_id}/status")
 async def bot_status(
     bot_id: UUID,
@@ -505,9 +522,12 @@ async def bot_status(
 ):
     pid = _read_pid(current_user.id, bot_id)
     if pid is None:
-        return {"running": False, "pid": None}
+        return {"running": False, "pid": None, "broker_connection": None}
     running = _is_running(pid)
-    return {"running": running, "pid": pid if running else None}
+    # A dead process can leave a stale connection_status.json behind — only
+    # surface the broker alert while the bot is actually running.
+    broker = _read_broker_connection(current_user.id, bot_id) if running else None
+    return {"running": running, "pid": pid if running else None, "broker_connection": broker}
 
 
 @router.get("/{bot_id}/positions")

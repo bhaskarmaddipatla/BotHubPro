@@ -748,6 +748,7 @@ export default function LiveBotPage() {
   const [allBots, setAllBots] = useState<any[]>([])
   const [running, setRunning] = useState(false)
   const [pid, setPid] = useState<number | null>(null)
+  const [brokerConn, setBrokerConn] = useState<{ connection: string; [k: string]: unknown } | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [tradeLog, setTradeLog] = useState<TradeEntry[]>([])
   const [botLog, setBotLog] = useState<string[]>([])
@@ -866,7 +867,11 @@ export default function LiveBotPage() {
 
   const fetchStatus = useCallback(async () => {
     if (!botId) return
-    try { const r = await botRunnerApi.status(botId); setRunning(r.data.running); setPid(r.data.pid) } catch {}
+    try {
+      const r = await botRunnerApi.status(botId)
+      setRunning(r.data.running); setPid(r.data.pid)
+      setBrokerConn(r.data.broker_connection ?? null)
+    } catch {}
   }, [botId])
 
   const fetchPositions = useCallback(async () => {
@@ -997,6 +1002,15 @@ export default function LiveBotPage() {
                 <span className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
                 {running ? `Running${pid ? ` · PID ${pid}` : ''}` : 'Stopped'}
               </span>
+              {running && brokerConn && brokerConn.connection !== 'CONNECTED' && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400"
+                  title={Object.entries(brokerConn).filter(([k]) => k !== 'connection').map(([k, v]) => `${k}: ${v}`).join(' · ') || undefined}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                  Broker {brokerConn.connection.toLowerCase()}
+                </span>
+              )}
               <span className={`text-xs px-2 py-0.5 rounded-full ${isPaper ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-400'}`}>
                 {isPaper ? 'Paper' : '⚠ Live'}
               </span>
