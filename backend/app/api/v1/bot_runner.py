@@ -470,20 +470,32 @@ async def stop_bot(
 @router.get("/{bot_id}/logs")
 async def bot_logs(
     bot_id: UUID,
-    lines: int = 100,
+    lines: int = 200,
+    level: Optional[str] = None,       # INFO | ERROR | WARNING | DEBUG
+    search: Optional[str] = None,       # free-text filter
+    since: Optional[str] = None,        # ISO date prefix e.g. "2026-07-14"
     current_user: User = Depends(get_current_active_user),
 ):
     data_path = Path(f"/data/{current_user.id}/{bot_id}")
     log_path = data_path / "bot.log"
     if not log_path.exists():
-        return {"lines": [], "message": "No log file found — bot may not have started yet"}
+        return {"lines": [], "total_lines": 0, "message": "No log file found — bot may not have started yet"}
     try:
-        with open(log_path, "r") as f:
+        with open(log_path, "r", errors="replace") as f:
             all_lines = f.readlines()
-        tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
-        return {"lines": [l.rstrip() for l in tail], "total_lines": len(all_lines)}
+        total = len(all_lines)
+        filtered = [l.rstrip() for l in all_lines]
+        if since:
+            filtered = [l for l in filtered if since in l]
+        if level:
+            filtered = [l for l in filtered if f"[{level.upper()}]" in l or f"| {level.upper()} |" in l]
+        if search:
+            sl = search.lower()
+            filtered = [l for l in filtered if sl in l.lower()]
+        tail = filtered[-lines:] if len(filtered) > lines else filtered
+        return {"lines": tail, "total_lines": total, "filtered_lines": len(filtered)}
     except Exception as e:
-        return {"lines": [], "error": str(e)}
+        return {"lines": [], "total_lines": 0, "error": str(e)}
 
 
 @router.get("/{bot_id}/status")

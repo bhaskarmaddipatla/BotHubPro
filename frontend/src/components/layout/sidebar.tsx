@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Bot, Activity, BarChart3, FlaskConical,
-  LineChart, CreditCard, Settings, ShieldCheck, Store, ScrollText, TrendingUp
+  LineChart, CreditCard, Settings, ShieldCheck, Store, ScrollText, TrendingUp, Terminal
 } from 'lucide-react'
 import { userApi } from '@/lib/api'
 
@@ -20,6 +20,7 @@ const navItems = [
   { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   { href: '/dashboard/swing-monitor', label: 'Swing Monitor', icon: TrendingUp },
+  { href: '/dashboard/logs', label: 'Logs', icon: Terminal },
 ]
 
 export function Sidebar() {

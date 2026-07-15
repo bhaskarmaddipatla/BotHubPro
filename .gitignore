@@ -28,6 +28,9 @@ out/
 # Logs
 *.log
 logs/
+# Exception: Next.js route named "logs"
+!frontend/src/app/**/logs/
+!frontend/src/app/**/logs/**
 
 # Docker
 .docker/
