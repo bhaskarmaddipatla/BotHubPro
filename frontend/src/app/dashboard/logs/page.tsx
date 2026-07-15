@@ -143,6 +143,9 @@ function LogLine({ line, expand }: { line: string; expand: boolean }) {
   )
 }
 
+// Filter selections are persisted so a page refresh doesn't lose them
+const FILTERS_KEY = 'bothub.logFilters'
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function LogsPage() {
   const [bots, setBots] = useState<Bot[]>([])
@@ -153,19 +156,50 @@ export default function LogsPage() {
   const [copied, setCopied] = useState(false)
   const [lineCount, setLineCount] = useState(2000)
   const [view, setView] = useState('all')
+  const [levelFilter, setLevelFilter] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [searchFilter, setSearchFilter] = useState('')
   const [sinceDate, setSinceDate] = useState(new Date().toISOString().slice(0, 10))
   const [filterByDate, setFilterByDate] = useState(true)
   const [expandAll, setExpandAll] = useState(false)
+  const [restored, setRestored] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Restore persisted filters before the first save runs
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FILTERS_KEY) || '{}')
+      if (saved.view && VIEW_PRESETS[saved.view]) setView(saved.view)
+      if (typeof saved.levelFilter === 'string') setLevelFilter(saved.levelFilter)
+      if (typeof saved.lineCount === 'number') setLineCount(saved.lineCount)
+      if (typeof saved.filterByDate === 'boolean') setFilterByDate(saved.filterByDate)
+      if (typeof saved.sinceDate === 'string' && saved.sinceDate) setSinceDate(saved.sinceDate)
+      if (typeof saved.searchFilter === 'string' && saved.searchFilter) {
+        setSearchFilter(saved.searchFilter)
+        setSearchInput(saved.searchFilter)
+      }
+    } catch {}
+    setRestored(true)
+  }, [])
+
+  useEffect(() => {
+    if (!restored) return
+    try {
+      localStorage.setItem(FILTERS_KEY, JSON.stringify({
+        selectedBot, view, levelFilter, lineCount, filterByDate, sinceDate, searchFilter,
+      }))
+    } catch {}
+  }, [restored, selectedBot, view, levelFilter, lineCount, filterByDate, sinceDate, searchFilter])
 
   useEffect(() => {
     botsApi.list().then(r => {
       const list: Bot[] = Array.isArray(r.data) ? r.data : (r.data?.bots ?? [])
       setBots(list)
-      if (list.length > 0) setSelectedBot(list[0].id)
+      let savedBot = ''
+      try { savedBot = JSON.parse(localStorage.getItem(FILTERS_KEY) || '{}').selectedBot || '' } catch {}
+      const initial = list.find(b => b.id === savedBot)?.id ?? list[0]?.id ?? ''
+      if (initial) setSelectedBot(initial)
     }).catch(() => {})
   }, [])
 
@@ -174,7 +208,8 @@ export default function LogsPage() {
     if (!id) return
     setLoading(true)
     try {
-      const opts: { lines: number; since?: string } = { lines: lineCount }
+      const opts: { lines: number; level?: string; since?: string } = { lines: lineCount }
+      if (levelFilter) opts.level = levelFilter
       if (filterByDate && sinceDate) opts.since = sinceDate
       const r = await botRunnerApi.logs(id, opts)
       setRawLogs(r.data)
@@ -183,9 +218,9 @@ export default function LogsPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedBot, lineCount, filterByDate, sinceDate])
+  }, [selectedBot, lineCount, levelFilter, filterByDate, sinceDate])
 
-  useEffect(() => { if (selectedBot) fetchLogs() }, [selectedBot, filterByDate, sinceDate, lineCount])
+  useEffect(() => { if (selectedBot) fetchLogs() }, [selectedBot, levelFilter, filterByDate, sinceDate, lineCount])
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
@@ -244,6 +279,15 @@ export default function LogsPage() {
           ))}
         </Sel>
 
+        {/* Level filter */}
+        <Sel value={levelFilter} onChange={setLevelFilter}>
+          <option value="">All levels</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+          <option value="DEBUG">DEBUG</option>
+        </Sel>
+
         {/* Date filter */}
         <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
           <input type="checkbox" checked={filterByDate} onChange={e => setFilterByDate(e.target.checked)} className="accent-blue-500" />
@@ -283,7 +327,9 @@ export default function LogsPage() {
 
         {/* Stats */}
         <span className="text-xs text-gray-600">
-          {displayLines.length} / {rawLogs?.total_lines ?? 0}
+          {rawLogs?.filtered_lines !== undefined
+            ? `${displayLines.length} shown / ${rawLogs.filtered_lines} matched / ${rawLogs.total_lines} total`
+            : `${displayLines.length} / ${rawLogs?.total_lines ?? 0}`}
         </span>
 
         {/* Expand toggle */}
@@ -311,7 +357,7 @@ export default function LogsPage() {
         <button onClick={handleCopy} disabled={!displayLines.length}
           className="flex items-center gap-1 text-xs px-2 py-1.5 rounded border border-[#1e2a3a] text-gray-400 hover:text-white disabled:opacity-40">
           {copied ? <Check size={11} className="text-green-400" /> : <Copy size={11} />}
-          {copied ? 'Copied!' : 'Copy'}
+          {copied ? 'Copied!' : 'Copy all'}
         </button>
       </div>
 
@@ -327,10 +373,31 @@ export default function LogsPage() {
             {v.label}
           </button>
         ))}
+        {filterByDate && sinceDate && (
+          <span className="text-[11px] bg-blue-500/10 text-blue-300 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
+            date: {sinceDate} <button onClick={() => setFilterByDate(false)} className="ml-1 hover:text-white"><X size={9} className="inline" /></button>
+          </span>
+        )}
+        {levelFilter && (
+          <span className={`text-[11px] px-2.5 py-0.5 rounded-full border ${
+            levelFilter === 'ERROR' ? 'bg-red-500/10 text-red-300 border-red-500/20' :
+            levelFilter === 'WARNING' ? 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20' :
+            'bg-blue-500/10 text-blue-300 border-blue-500/20'
+          }`}>
+            level: {levelFilter} <button onClick={() => setLevelFilter('')} className="ml-1 hover:text-white"><X size={9} className="inline" /></button>
+          </span>
+        )}
         {searchFilter && (
           <span className="text-[11px] bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2.5 py-0.5 rounded-full">
             search: "{searchFilter}" <button onClick={() => { setSearchFilter(''); setSearchInput('') }} className="ml-1 hover:text-white"><X size={9} className="inline" /></button>
           </span>
+        )}
+        {(levelFilter || searchFilter || filterByDate) && (
+          <button
+            onClick={() => { setLevelFilter(''); setSearchFilter(''); setSearchInput(''); setFilterByDate(false) }}
+            className="text-[11px] text-gray-500 hover:text-white ml-1">
+            clear all
+          </button>
         )}
       </div>
 
@@ -367,7 +434,7 @@ export default function LogsPage() {
       {/* ── Footer ── */}
       <div className="border-t border-[#1e2a3a] px-4 py-1.5 flex items-center justify-between text-[11px] text-gray-600">
         <span>{selectedBotName}</span>
-        <span>Click a long line to expand · <kbd className="bg-[#1e2a3a] text-gray-400 px-1 rounded">Copy</kbd> → paste into chat</span>
+        <span>Click a long line to expand · <kbd className="bg-[#1e2a3a] text-gray-400 px-1 rounded">Copy all</kbd> → paste into chat</span>
       </div>
     </div>
   )
