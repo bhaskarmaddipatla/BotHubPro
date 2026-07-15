@@ -1,14 +1,9 @@
 "use client"
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { botsApi, botRunnerApi } from '@/lib/api'
-import { Terminal, RefreshCw, Copy, Check, Search, X, ChevronDown, AlertCircle, Info, AlertTriangle, Bug } from 'lucide-react'
+import { Terminal, RefreshCw, Copy, Check, Search, X, ChevronDown, ChevronRight, AlertCircle, Info, AlertTriangle } from 'lucide-react'
 
-interface Bot {
-  id: string
-  name: string
-  status?: string
-}
-
+interface Bot { id: string; name: string }
 interface LogResult {
   lines: string[]
   total_lines: number
@@ -17,58 +12,158 @@ interface LogResult {
   error?: string
 }
 
-const LEVEL_COLORS: Record<string, string> = {
-  ERROR:   'text-red-400',
-  WARNING: 'text-yellow-400',
-  INFO:    'text-blue-300',
-  DEBUG:   'text-gray-500',
+// ── View presets ──────────────────────────────────────────────────────────────
+// Each preset is a list of regex patterns; a line is kept if ANY pattern matches.
+// Empty patterns array = keep all lines.
+const VIEW_PRESETS: Record<string, { label: string; color: string; patterns: RegExp[] }> = {
+  all: {
+    label: 'All Logs',
+    color: 'text-gray-300',
+    patterns: [],
+  },
+  trades: {
+    label: 'Trades Only',
+    color: 'text-green-400',
+    patterns: [
+      /order\s+(submit|place|fill|execut|cancel|reject)/i,
+      /trade\s+(open|close|enter|exit|placed|executed)/i,
+      /position\s+(open|close|enter|exit)/i,
+      /entry|exit_trade|place_order|order_filled|order_id/i,
+      /BUY|SELL.*spread|spread.*SELL|spread.*BUY/i,
+      /stop.loss|take.profit|profit.target/i,
+      /credit.*\$|debit.*\$|\$.*credit|\$.*debit/i,
+      /net.*p&l|p&l|pnl/i,
+      /closed.*position|position.*closed/i,
+      /trade=True|trade=False.*confidence/i,
+      /MASTER:.*trade=/i,
+    ],
+  },
+  decisions: {
+    label: 'AI Decisions',
+    color: 'text-purple-400',
+    patterns: [
+      /MASTER:|master analyst/i,
+      /trade=True|trade=False/i,
+      /confidence=\d/i,
+      /No Trade|no_trade/i,
+      /strategy=|recommendation=/i,
+      /analyst.*panel|consulting.*analyst/i,
+      /Trend Analyst|Volatility Analyst|Risk Analyst|Technical Analyst|Market Analyst/i,
+      /bull.?put|bear.?call|iron.?condor|call.?credit|put.?credit/i,
+    ],
+  },
+  signals: {
+    label: 'Signals',
+    color: 'text-yellow-400',
+    patterns: [
+      /ADD=|add_value|ADD\s+signal/i,
+      /EMA.*trend|ema_trend/i,
+      /VWAP|vwap/i,
+      /move.*implied|implied.*move|move.ratio/i,
+      /VIX|vix/i,
+      /bias.*score|score.*bias|ScoreBreak/i,
+      /signal.*confirm|confirm.*signal/i,
+      /bullish|bearish|neutral/i,
+      /atm_iv|iv_source/i,
+    ],
+  },
+  errors: {
+    label: 'Errors & Warnings',
+    color: 'text-red-400',
+    patterns: [
+      /\[ERROR\]|\| ERROR \|/,
+      /\[WARNING\]|\| WARNING \|/,
+      /Error \d+|reqId \d+.*Error/i,
+      /Traceback|Exception|raise |failed|failure/i,
+    ],
+  },
 }
 
-const LEVEL_ICONS: Record<string, React.ReactNode> = {
-  ERROR:   <AlertCircle size={11} className="inline mr-1 text-red-400" />,
-  WARNING: <AlertTriangle size={11} className="inline mr-1 text-yellow-400" />,
-  INFO:    <Info size={11} className="inline mr-1 text-blue-300" />,
-  DEBUG:   <Bug size={11} className="inline mr-1 text-gray-500" />,
-}
-
-function classifyLine(line: string): string {
-  if (/\[ERROR\]|\| ERROR \|/.test(line)) return 'ERROR'
+// ── Line classification ───────────────────────────────────────────────────────
+function classifyLine(line: string): 'ERROR' | 'WARNING' | 'INFO' | 'TRADE' | '' {
+  if (/\[ERROR\]|\| ERROR \||Error \d+/.test(line)) return 'ERROR'
   if (/\[WARNING\]|\| WARNING \|/.test(line)) return 'WARNING'
+  if (/order.*fill|trade.*open|trade.*close|position.*open|position.*close|MASTER:.*trade=True|entry|exit_trade/i.test(line)) return 'TRADE'
   if (/\[INFO\]|\| INFO \|/.test(line)) return 'INFO'
-  if (/\[DEBUG\]|\| DEBUG \|/.test(line)) return 'DEBUG'
   return ''
 }
 
-function LogLine({ line }: { line: string }) {
+const LEVEL_STYLE: Record<string, string> = {
+  ERROR:   'text-red-400 bg-red-500/5',
+  WARNING: 'text-yellow-300 bg-yellow-500/5',
+  TRADE:   'text-green-300 bg-green-500/8 font-medium',
+  INFO:    'text-gray-300',
+  '':      'text-gray-500',
+}
+
+const LEVEL_BADGE: Record<string, React.ReactNode> = {
+  ERROR:   <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-red-500/20 text-red-400 px-1 rounded mr-1.5">ERR</span>,
+  WARNING: <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-yellow-500/20 text-yellow-400 px-1 rounded mr-1.5">WARN</span>,
+  TRADE:   <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-green-500/20 text-green-400 px-1 rounded mr-1.5">TRADE</span>,
+}
+
+// Strip timestamp + logger prefix to keep lines short; show on expand
+function parseLine(line: string) {
+  // Match: "2026-07-14 10:55:11,735 | swing_bot.main | INFO | actual message"
+  //    or: "2026-07-14 10:55:11,735 [INFO] swing_bot.main: actual message"
+  const m1 = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,.\d]*)\s*\|[^|]+\|\s*\w+\s*\|\s*(.+)$/)
+  if (m1) return { ts: m1[1], msg: m1[2] }
+  const m2 = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,.\d]*)\s*\[\w+\]\s*[\w.]+:\s*(.+)$/)
+  if (m2) return { ts: m2[1], msg: m2[2] }
+  return { ts: '', msg: line }
+}
+
+function LogLine({ line, expand }: { line: string; expand: boolean }) {
+  const [open, setOpen] = useState(false)
   const level = classifyLine(line)
-  const color = level ? LEVEL_COLORS[level] : 'text-gray-300'
-  const icon = level ? LEVEL_ICONS[level] : null
+  const style = LEVEL_STYLE[level] || LEVEL_STYLE['']
+  const badge = LEVEL_BADGE[level]
+  const { ts, msg } = parseLine(line)
+  const isLong = msg.length > 140
+  const showFull = open || expand || !isLong
+
   return (
-    <div className={`font-mono text-xs leading-5 whitespace-pre-wrap break-all px-3 py-[1px] hover:bg-white/5 ${color}`}>
-      {icon}{line}
+    <div
+      className={`font-mono text-xs leading-5 px-3 py-[2px] border-b border-white/[0.03] hover:bg-white/[0.04] cursor-default ${style}`}
+      onClick={() => isLong && setOpen(v => !v)}
+    >
+      {ts && <span className="text-gray-600 mr-2 select-none">{ts.slice(11, 19)}</span>}
+      {badge}
+      <span className={isLong && !showFull ? 'line-clamp-1' : 'whitespace-pre-wrap break-all'}>
+        {showFull ? msg : msg.slice(0, 140) + '…'}
+      </span>
+      {isLong && (
+        <span className="ml-1 text-gray-600 select-none">
+          {showFull
+            ? <ChevronDown size={10} className="inline" />
+            : <ChevronRight size={10} className="inline" />}
+        </span>
+      )}
     </div>
   )
 }
 
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function LogsPage() {
   const [bots, setBots] = useState<Bot[]>([])
-  const [selectedBot, setSelectedBot] = useState<string>('')
-  const [logs, setLogs] = useState<LogResult | null>(null)
+  const [selectedBot, setSelectedBot] = useState('')
+  const [rawLogs, setRawLogs] = useState<LogResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [lineCount, setLineCount] = useState(500)
-  const [levelFilter, setLevelFilter] = useState('')
-  const [searchFilter, setSearchFilter] = useState('')
+  const [lineCount, setLineCount] = useState(2000)
+  const [view, setView] = useState('all')
   const [searchInput, setSearchInput] = useState('')
+  const [searchFilter, setSearchFilter] = useState('')
   const [sinceDate, setSinceDate] = useState(new Date().toISOString().slice(0, 10))
   const [filterByDate, setFilterByDate] = useState(true)
+  const [expandAll, setExpandAll] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     botsApi.list().then(r => {
-      const list = Array.isArray(r.data) ? r.data : (r.data?.bots ?? [])
+      const list: Bot[] = Array.isArray(r.data) ? r.data : (r.data?.bots ?? [])
       setBots(list)
       if (list.length > 0) setSelectedBot(list[0].id)
     }).catch(() => {})
@@ -79,249 +174,226 @@ export default function LogsPage() {
     if (!id) return
     setLoading(true)
     try {
-      const opts: { lines: number; level?: string; search?: string; since?: string } = { lines: lineCount }
-      if (levelFilter) opts.level = levelFilter
-      if (searchFilter) opts.search = searchFilter
+      const opts: { lines: number; since?: string } = { lines: lineCount }
       if (filterByDate && sinceDate) opts.since = sinceDate
       const r = await botRunnerApi.logs(id, opts)
-      setLogs(r.data)
+      setRawLogs(r.data)
     } catch {
-      setLogs({ lines: [], total_lines: 0, error: 'Failed to fetch logs' })
+      setRawLogs({ lines: [], total_lines: 0, error: 'Failed to fetch logs' })
     } finally {
       setLoading(false)
     }
-  }, [selectedBot, lineCount, levelFilter, searchFilter, filterByDate, sinceDate])
+  }, [selectedBot, lineCount, filterByDate, sinceDate])
 
-  useEffect(() => {
-    if (selectedBot) fetchLogs()
-  }, [selectedBot, levelFilter, searchFilter, filterByDate, sinceDate, lineCount])
+  useEffect(() => { if (selectedBot) fetchLogs() }, [selectedBot, filterByDate, sinceDate, lineCount])
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
-    if (autoRefresh && selectedBot) {
-      timerRef.current = setInterval(() => fetchLogs(), 5000)
-    }
+    if (autoRefresh && selectedBot) timerRef.current = setInterval(() => fetchLogs(), 5000)
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [autoRefresh, selectedBot, fetchLogs])
 
   useEffect(() => {
     if (autoRefresh) logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs, autoRefresh])
+  }, [rawLogs, autoRefresh])
+
+  // Apply view preset + search filter client-side (fast, no round-trip)
+  const displayLines = (() => {
+    if (!rawLogs?.lines) return []
+    let lines = rawLogs.lines
+    const preset = VIEW_PRESETS[view]
+    if (preset.patterns.length > 0) {
+      lines = lines.filter(l => preset.patterns.some(p => p.test(l)))
+    }
+    if (searchFilter) {
+      const sl = searchFilter.toLowerCase()
+      lines = lines.filter(l => l.toLowerCase().includes(sl))
+    }
+    return lines
+  })()
 
   const handleCopy = () => {
-    if (!logs?.lines.length) return
-    navigator.clipboard.writeText(logs.lines.join('\n'))
+    if (!displayLines.length) return
+    navigator.clipboard.writeText(displayLines.join('\n'))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    setSearchFilter(searchInput)
-  }
-
   const selectedBotName = bots.find(b => b.id === selectedBot)?.name ?? ''
+  const preset = VIEW_PRESETS[view]
 
   return (
     <div className="flex flex-col h-full min-h-screen bg-[#070b14] text-white">
-      {/* Header */}
-      <div className="border-b border-[#1e2a3a] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Terminal size={18} className="text-blue-400" />
-          <h1 className="text-lg font-semibold">Bot Logs</h1>
-          {logs && (
-            <span className="text-xs text-gray-500 ml-2">
-              {logs.filtered_lines !== undefined
-                ? `${logs.lines.length} shown / ${logs.filtered_lines} matched / ${logs.total_lines} total`
-                : `${logs.lines.length} / ${logs.total_lines} lines`}
-            </span>
+
+      {/* ── Header ── */}
+      <div className="border-b border-[#1e2a3a] px-4 py-3 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 mr-2">
+          <Terminal size={16} className="text-blue-400" />
+          <h1 className="text-sm font-semibold">Bot Logs</h1>
+        </div>
+
+        {/* Bot selector */}
+        <Sel value={selectedBot} onChange={setSelectedBot}>
+          {bots.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </Sel>
+
+        {/* View preset — the main new dropdown */}
+        <Sel value={view} onChange={setView} highlight>
+          {Object.entries(VIEW_PRESETS).map(([k, v]) => (
+            <option key={k} value={k}>{v.label}</option>
+          ))}
+        </Sel>
+
+        {/* Date filter */}
+        <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
+          <input type="checkbox" checked={filterByDate} onChange={e => setFilterByDate(e.target.checked)} className="accent-blue-500" />
+          <input
+            type="date" value={sinceDate} onChange={e => setSinceDate(e.target.value)} disabled={!filterByDate}
+            className="bg-[#0f1929] border border-[#1e2a3a] text-white text-xs rounded px-2 py-1 focus:outline-none focus:border-blue-500 disabled:opacity-40"
+          />
+        </label>
+
+        {/* Line count */}
+        <Sel value={String(lineCount)} onChange={v => setLineCount(Number(v))}>
+          <option value="500">500 lines</option>
+          <option value="1000">1000 lines</option>
+          <option value="2000">2000 lines</option>
+          <option value="5000">5000 lines</option>
+          <option value="9999">All</option>
+        </Sel>
+
+        {/* Search */}
+        <form onSubmit={e => { e.preventDefault(); setSearchFilter(searchInput) }} className="flex items-center gap-1">
+          <div className="relative">
+            <Search size={11} className="absolute left-2 top-2 text-gray-500" />
+            <input
+              type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="Search…"
+              className="bg-[#0f1929] border border-[#1e2a3a] text-white text-xs rounded-lg pl-6 pr-2 py-1.5 w-32 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          {searchFilter && (
+            <button type="button" onClick={() => { setSearchFilter(''); setSearchInput('') }} className="text-gray-500 hover:text-white">
+              <X size={12} />
+            </button>
           )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Bot selector */}
-          <div className="relative">
-            <select
-              value={selectedBot}
-              onChange={e => setSelectedBot(e.target.value)}
-              className="appearance-none bg-[#0f1929] border border-[#1e2a3a] text-white text-sm rounded-lg px-3 py-1.5 pr-8 focus:outline-none focus:border-blue-500"
-            >
-              {bots.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-            <ChevronDown size={14} className="absolute right-2 top-2 text-gray-400 pointer-events-none" />
-          </div>
+        </form>
 
-          {/* Date toggle */}
-          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={filterByDate}
-              onChange={e => setFilterByDate(e.target.checked)}
-              className="accent-blue-500"
-            />
-            Date:
-            <input
-              type="date"
-              value={sinceDate}
-              onChange={e => setSinceDate(e.target.value)}
-              disabled={!filterByDate}
-              className="bg-[#0f1929] border border-[#1e2a3a] text-white text-xs rounded px-2 py-1 focus:outline-none focus:border-blue-500 disabled:opacity-40"
-            />
-          </label>
+        {/* Spacer */}
+        <div className="flex-1" />
 
-          {/* Level filter */}
-          <div className="relative">
-            <select
-              value={levelFilter}
-              onChange={e => setLevelFilter(e.target.value)}
-              className="appearance-none bg-[#0f1929] border border-[#1e2a3a] text-white text-xs rounded-lg px-3 py-1.5 pr-7 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">All levels</option>
-              <option value="ERROR">ERROR</option>
-              <option value="WARNING">WARNING</option>
-              <option value="INFO">INFO</option>
-              <option value="DEBUG">DEBUG</option>
-            </select>
-            <ChevronDown size={12} className="absolute right-2 top-2 text-gray-400 pointer-events-none" />
-          </div>
+        {/* Stats */}
+        <span className="text-xs text-gray-600">
+          {displayLines.length} / {rawLogs?.total_lines ?? 0}
+        </span>
 
-          {/* Line count */}
-          <div className="relative">
-            <select
-              value={lineCount}
-              onChange={e => setLineCount(Number(e.target.value))}
-              className="appearance-none bg-[#0f1929] border border-[#1e2a3a] text-white text-xs rounded-lg px-3 py-1.5 pr-7 focus:outline-none focus:border-blue-500"
-            >
-              <option value={200}>Last 200</option>
-              <option value={500}>Last 500</option>
-              <option value={1000}>Last 1000</option>
-              <option value={2000}>Last 2000</option>
-              <option value={9999}>All</option>
-            </select>
-            <ChevronDown size={12} className="absolute right-2 top-2 text-gray-400 pointer-events-none" />
-          </div>
+        {/* Expand toggle */}
+        <button onClick={() => setExpandAll(v => !v)}
+          className="text-xs px-2 py-1.5 rounded border border-[#1e2a3a] text-gray-400 hover:text-white transition-colors">
+          {expandAll ? 'Collapse' : 'Expand all'}
+        </button>
 
-          {/* Search */}
-          <form onSubmit={handleSearch} className="flex items-center gap-1">
-            <div className="relative">
-              <Search size={12} className="absolute left-2 top-2 text-gray-500" />
-              <input
-                type="text"
-                value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                placeholder="Search logs…"
-                className="bg-[#0f1929] border border-[#1e2a3a] text-white text-xs rounded-lg pl-7 pr-2 py-1.5 w-36 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-            {searchFilter && (
-              <button type="button" onClick={() => { setSearchFilter(''); setSearchInput('') }}
-                className="text-gray-400 hover:text-white p-1">
-                <X size={12} />
-              </button>
-            )}
-          </form>
+        {/* Auto refresh */}
+        <button onClick={() => setAutoRefresh(v => !v)}
+          className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded border transition-colors ${
+            autoRefresh ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'border-[#1e2a3a] text-gray-400 hover:text-white'
+          }`}>
+          <RefreshCw size={11} className={autoRefresh ? 'animate-spin' : ''} />
+          {autoRefresh ? 'Live' : 'Auto'}
+        </button>
 
-          {/* Auto refresh toggle */}
-          <button
-            onClick={() => setAutoRefresh(v => !v)}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-              autoRefresh
-                ? 'bg-green-500/10 border-green-500/30 text-green-400'
-                : 'bg-[#0f1929] border-[#1e2a3a] text-gray-400 hover:text-white'
-            }`}
-          >
-            <RefreshCw size={12} className={autoRefresh ? 'animate-spin' : ''} />
-            {autoRefresh ? 'Live' : 'Auto'}
-          </button>
+        {/* Refresh */}
+        <button onClick={() => fetchLogs()} disabled={loading}
+          className="p-1.5 rounded border border-[#1e2a3a] text-blue-400 hover:bg-blue-500/10 disabled:opacity-50">
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+        </button>
 
-          {/* Manual refresh */}
-          <button
-            onClick={() => fetchLogs()}
-            disabled={loading}
-            className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          </button>
-
-          {/* Copy */}
-          <button
-            onClick={handleCopy}
-            disabled={!logs?.lines.length}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#0f1929] border border-[#1e2a3a] text-gray-400 hover:text-white transition-colors disabled:opacity-40"
-          >
-            {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-            {copied ? 'Copied!' : 'Copy all'}
-          </button>
-        </div>
+        {/* Copy */}
+        <button onClick={handleCopy} disabled={!displayLines.length}
+          className="flex items-center gap-1 text-xs px-2 py-1.5 rounded border border-[#1e2a3a] text-gray-400 hover:text-white disabled:opacity-40">
+          {copied ? <Check size={11} className="text-green-400" /> : <Copy size={11} />}
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
       </div>
 
-      {/* Active filters badge row */}
-      {(levelFilter || searchFilter || filterByDate) && (
-        <div className="px-6 py-2 flex items-center gap-2 flex-wrap border-b border-[#1e2a3a] bg-[#0a0e1a]">
-          <span className="text-xs text-gray-500">Filters:</span>
-          {filterByDate && sinceDate && (
-            <span className="text-xs bg-blue-500/10 text-blue-300 border border-blue-500/20 px-2 py-0.5 rounded-full">
-              date: {sinceDate}
-            </span>
-          )}
-          {levelFilter && (
-            <span className={`text-xs px-2 py-0.5 rounded-full border ${
-              levelFilter === 'ERROR' ? 'bg-red-500/10 text-red-300 border-red-500/20' :
-              levelFilter === 'WARNING' ? 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20' :
-              'bg-blue-500/10 text-blue-300 border-blue-500/20'
+      {/* ── View preset pills ── */}
+      <div className="flex items-center gap-1.5 px-4 py-2 border-b border-[#1e2a3a] bg-[#0a0e1a] flex-wrap">
+        {Object.entries(VIEW_PRESETS).map(([k, v]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={`text-[11px] px-2.5 py-0.5 rounded-full border transition-colors ${
+              view === k
+                ? 'bg-blue-500/20 border-blue-500/40 text-blue-300'
+                : 'border-[#1e2a3a] text-gray-500 hover:text-gray-300 hover:border-gray-600'
             }`}>
-              level: {levelFilter}
-            </span>
-          )}
-          {searchFilter && (
-            <span className="text-xs bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2 py-0.5 rounded-full">
-              search: "{searchFilter}"
-            </span>
-          )}
-          <button
-            onClick={() => { setLevelFilter(''); setSearchFilter(''); setSearchInput(''); setFilterByDate(false) }}
-            className="text-xs text-gray-500 hover:text-white ml-1"
-          >
-            clear all
+            {v.label}
           </button>
-        </div>
-      )}
+        ))}
+        {searchFilter && (
+          <span className="text-[11px] bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2.5 py-0.5 rounded-full">
+            search: "{searchFilter}" <button onClick={() => { setSearchFilter(''); setSearchInput('') }} className="ml-1 hover:text-white"><X size={9} className="inline" /></button>
+          </span>
+        )}
+      </div>
 
-      {/* Log body */}
-      <div className="flex-1 overflow-y-auto bg-[#070b14] py-2">
-        {loading && !logs && (
+      {/* ── Log body ── */}
+      <div className="flex-1 overflow-y-auto bg-[#070b14]">
+        {loading && !rawLogs && (
           <div className="flex items-center justify-center h-40 text-gray-500 text-sm">
-            <RefreshCw size={16} className="animate-spin mr-2" /> Loading logs…
+            <RefreshCw size={14} className="animate-spin mr-2" /> Loading…
           </div>
         )}
-
-        {logs?.error && (
-          <div className="mx-6 mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-            {logs.error}
+        {rawLogs?.error && (
+          <div className="mx-4 mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex gap-2">
+            <AlertCircle size={15} className="shrink-0 mt-0.5" /> {rawLogs.error}
           </div>
         )}
-
-        {logs?.message && !logs.lines.length && (
-          <div className="mx-6 mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-sm">
-            {logs.message}
+        {rawLogs?.message && !rawLogs.lines.length && (
+          <div className="mx-4 mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-sm flex gap-2">
+            <Info size={15} className="shrink-0 mt-0.5" /> {rawLogs.message}
           </div>
         )}
-
-        {logs?.lines.map((line, i) => <LogLine key={i} line={line} />)}
-
-        {logs?.lines.length === 0 && !logs.error && !logs.message && !loading && (
-          <div className="flex items-center justify-center h-40 text-gray-500 text-sm">
-            No log lines match the current filters.
+        {displayLines.length === 0 && !rawLogs?.error && !rawLogs?.message && !loading && (
+          <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-sm gap-2">
+            <AlertTriangle size={20} className="text-gray-600" />
+            No log lines match <span className="text-gray-400">"{preset.label}"</span>
+            {view !== 'all' && (
+              <button onClick={() => setView('all')} className="text-blue-400 text-xs hover:underline">Switch to All Logs</button>
+            )}
           </div>
         )}
-
+        {displayLines.map((line, i) => <LogLine key={i} line={line} expand={expandAll} />)}
         <div ref={logEndRef} />
       </div>
 
-      {/* Footer hint */}
-      <div className="border-t border-[#1e2a3a] px-6 py-2 flex items-center justify-between text-xs text-gray-600">
-        <span>{selectedBotName || 'No bot selected'}</span>
-        <span>Press <kbd className="bg-[#1e2a3a] text-gray-400 px-1.5 py-0.5 rounded text-[10px]">Copy all</kbd> then paste into chat for troubleshooting</span>
+      {/* ── Footer ── */}
+      <div className="border-t border-[#1e2a3a] px-4 py-1.5 flex items-center justify-between text-[11px] text-gray-600">
+        <span>{selectedBotName}</span>
+        <span>Click a long line to expand · <kbd className="bg-[#1e2a3a] text-gray-400 px-1 rounded">Copy</kbd> → paste into chat</span>
       </div>
+    </div>
+  )
+}
+
+// ── Small reusable select ─────────────────────────────────────────────────────
+function Sel({ value, onChange, children, highlight }: {
+  value: string
+  onChange: (v: string) => void
+  children: React.ReactNode
+  highlight?: boolean
+}) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={`appearance-none text-xs rounded-lg pl-2.5 pr-6 py-1.5 focus:outline-none focus:border-blue-500 border ${
+          highlight
+            ? 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+            : 'bg-[#0f1929] border-[#1e2a3a] text-white'
+        }`}
+      >
+        {children}
+      </select>
+      <ChevronDown size={11} className="absolute right-1.5 top-2 text-gray-400 pointer-events-none" />
     </div>
   )
 }
