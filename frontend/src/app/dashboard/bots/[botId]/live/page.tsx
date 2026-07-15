@@ -170,15 +170,31 @@ function OpenPositionsCard({ positions, onClose }: { positions: any[]; onClose?:
     return `${parseInt(m[3]) / 1000}${m[2]}`
   }
 
+  // Right and strike from an IBKR local symbol like "SPXW  260715C07570000"
+  // (6-digit date, C/P, strike ×1000). Explicit fields on the leg win if present.
+  const legMeta = (p: any) => {
+    const m = legSym(p).match(/\d{6}([CP])(\d+)/)
+    const right = String(p?.right ?? m?.[1] ?? '')
+    const strike = p?.strike != null ? Number(p.strike) : m ? parseInt(m[2]) / 1000 : 0
+    return { right, strike }
+  }
+
   const spreadLabel = (s: { short: any; long: any }) => {
     const ss = s.short ? strikeLabel(legSym(s.short)) : '?'
     const ls = s.long  ? strikeLabel(legSym(s.long))  : '?'
-    const sym = legSym(s.short ?? s.long)
-    const right = sym.includes('P') ? 'Put' : 'Call'
-    const shortStrike = s.short ? Number(s.short.strike ?? sym.match(/\d{8}[CP](\d+)/)?.[1] ?? 0) / (s.short.strike ? 1 : 1000) : 0
-    const longStrike  = s.long  ? Number(s.long.strike  ?? legSym(s.long).match(/\d{8}[CP](\d+)/)?.[1] ?? 0) / (s.long.strike ? 1 : 1000) : 0
-    const spreadType = s.short && s.long ? (shortStrike > longStrike ? 'Credit' : 'Debit') : ''
-    return `SPX ${ss}/${ls} ${right} ${spreadType} Spread`.trim()
+    const { right } = legMeta(s.short ?? s.long)
+    const rightWord = right === 'P' ? 'Put' : right === 'C' ? 'Call' : ''
+    let spreadType = ''
+    if (s.short && s.long) {
+      const shortStrike = legMeta(s.short).strike
+      const longStrike = legMeta(s.long).strike
+      if (shortStrike && longStrike && shortStrike !== longStrike) {
+        // Credit: calls are sold below the long strike, puts above it
+        const isCredit = right === 'P' ? shortStrike > longStrike : shortStrike < longStrike
+        spreadType = isCredit ? 'Credit' : 'Debit'
+      }
+    }
+    return `SPX ${ss}/${ls} ${rightWord} ${spreadType} Spread`.replace(/\s+/g, ' ').trim()
   }
 
   const spreadPnl = (s: { short: any; long: any }) => {
