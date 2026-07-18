@@ -39,8 +39,8 @@ const STRATEGY_PARAMS: Record<string, ParamDef[]> = {
   iron_fly: [
     { key: 'contracts',        label: 'Contracts',       type: 'number', step: 1,    min: 1,    max: 50   },
     { key: 'wing_width',       label: 'Wing Width (pts)',type: 'number', step: 5,    min: 10,   max: 100  },
-    { key: 'profit_target_pct',label: 'Take Profit (%)', type: 'number', step: 5,    min: 10,   max: 50   },
-    { key: 'stop_loss_pct',    label: 'Stop Loss (%)',   type: 'number', step: 25,   min: 100,  max: 300  },
+    { key: 'profit_target_pct',label: 'Take Profit (% of credit)', type: 'number', step: 1, min: 2, max: 100 },
+    { key: 'stop_loss_pct',    label: 'Stop Loss (% of credit)',   type: 'number', step: 5, min: 5, max: 300 },
     { key: 'entry_time',       label: 'Entry Time (ET)', type: 'time' },
     { key: 'max_hold_minutes', label: 'Max Hold (min)',  type: 'number', step: 15,   min: 15,   max: 390  },
   ],
@@ -62,7 +62,7 @@ const categoryToStrategy: Record<string, string> = {
 const DEFAULT_PARAMS_BY_STRATEGY: Record<string, Record<string, number | string>> = {
   credit_spread: { contracts: 1, spread_width: 5, short_strike_delta: 0.20, take_profit_pct: 50, max_loss_per_trade: 500 },
   iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
-  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150, entry_time: '10:45', max_hold_minutes: 60 },
+  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 6, stop_loss_pct: 10, entry_time: '10:45', max_hold_minutes: 60 },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
 }
 
