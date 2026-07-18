@@ -150,7 +150,11 @@ def simulate_credit_spread(
         })
         equity_curve.append({"date": d, "value": round(capital, 2)})
 
-    # Metrics
+    return _summarize(trades, equity_curve, monthly, capital, initial_capital)
+
+
+def _summarize(trades: list, equity_curve: list, monthly: Dict[str, dict],
+               capital: float, initial_capital: float) -> dict:
     winners = [t for t in trades if t["pnl"] > 0]
     losers = [t for t in trades if t["pnl"] <= 0]
     total_wins = sum(t["pnl"] for t in winners)
@@ -202,6 +206,92 @@ def simulate_credit_spread(
         "final_capital": round(capital, 2),
         "total_return": round((capital - initial_capital) / initial_capital * 100, 2),
     }
+
+
+# ── Iron Fly simulator ────────────────────────────────────────────────────────
+
+def simulate_iron_fly(
+    price_rows: list,
+    contracts: int = 1,
+    wing_width: float = 50,
+    profit_target_pct: float = 25,
+    stop_loss_pct: float = 150,
+    initial_capital: float = 10_000,
+) -> dict:
+    """ATM iron fly: sell the ATM straddle, buy wings wing_width points away.
+
+    Exit model per day (intrinsic-value approximation, same style as the
+    credit-spread simulator): stop out if the intraday excursion from the
+    center strike implies a loss >= stop_loss_pct of credit; otherwise take
+    profit_target_pct of credit if the settle would have reached it; otherwise
+    settle at close.
+    """
+    r = 0.05
+    T = 1 / 252  # 0DTE
+
+    capital = initial_capital
+    trades: list = []
+    equity_curve = [{"date": price_rows[0]["date"], "value": round(capital, 2)}]
+    monthly: Dict[str, dict] = {}
+
+    for row in price_rows:
+        S = row["open"]
+        sigma = row["vix"] / 100 if row["vix"] else 0.18
+        center_K = round(S / 5) * 5  # SPX strikes in 5-pt increments
+
+        credit = (
+            (bs_price(S, center_K, T, r, sigma, "call") - bs_price(S, center_K + wing_width, T, r, sigma, "call"))
+            + (bs_price(S, center_K, T, r, sigma, "put") - bs_price(S, center_K - wing_width, T, r, sigma, "put"))
+        ) * 100 * contracts
+
+        max_loss = (wing_width * 100 * contracts) - credit
+        if credit <= 0 or max_loss <= 0:
+            continue
+
+        stop_loss_dollars = min(credit * stop_loss_pct / 100, max_loss)
+        target_dollars = credit * profit_target_pct / 100
+
+        # Points from center where intrinsic loss reaches the stop
+        stop_move = (credit + stop_loss_dollars) / (100 * contracts)
+        max_excursion = max(row["high"] - center_K, center_K - row["low"])
+
+        settle_move = min(abs(row["close"] - center_K), wing_width)
+        pnl_at_expiry = credit - settle_move * 100 * contracts
+
+        if max_excursion >= stop_move:
+            pnl = -stop_loss_dollars
+            exit_reason = "stop_loss"
+        elif pnl_at_expiry >= target_dollars:
+            pnl = target_dollars
+            exit_reason = "take_profit"
+        else:
+            pnl = max(pnl_at_expiry, -max_loss)
+            exit_reason = "expired"
+
+        capital += pnl
+        d = row["date"]
+        month_key = d[:7]
+        if month_key not in monthly:
+            monthly[month_key] = {"start": capital - pnl, "end": capital, "trades": 0, "wins": 0}
+        monthly[month_key]["end"] = capital
+        monthly[month_key]["trades"] += 1
+        if pnl > 0:
+            monthly[month_key]["wins"] += 1
+
+        trades.append({
+            "date": d,
+            "spx_open": round(S, 2),
+            "short_strike": round(center_K, 2),
+            "long_strike": f"{round(center_K - wing_width)}/{round(center_K + wing_width)}",
+            "credit": round(credit, 2),
+            "pnl": round(pnl, 2),
+            "cumulative": round(capital - initial_capital, 2),
+            "exit_reason": exit_reason,
+            "contracts": contracts,
+        })
+        equity_curve.append({"date": d, "value": round(capital, 2)})
+
+    return _summarize(trades, equity_curve, monthly, capital, initial_capital)
 
 
 # ── Synthetic SPX data generator (used when Yahoo Finance is unreachable) ─────
@@ -352,7 +442,25 @@ async def run_backtest(
         raise HTTPException(status_code=400, detail="No trading days found in date range")
 
     strategy = request.strategy.lower().replace(" ", "_")
-    if "credit_spread" in strategy or strategy in ("credit_spread", "spx_credit_spread"):
+    if "iron_fly" in strategy:
+        wing_width = float(trade_params.get("wing_width", 50))
+        profit_target_pct = float(trade_params.get("profit_target_pct", 25))
+        stop_loss_pct = float(trade_params.get("stop_loss_pct", 150))
+        sim = simulate_iron_fly(
+            price_rows,
+            contracts=contracts,
+            wing_width=wing_width,
+            profit_target_pct=profit_target_pct,
+            stop_loss_pct=stop_loss_pct,
+            initial_capital=request.initial_capital,
+        )
+        params_used = {
+            "contracts": contracts,
+            "wing_width": wing_width,
+            "profit_target_pct": profit_target_pct,
+            "stop_loss_pct": stop_loss_pct,
+        }
+    elif "credit_spread" in strategy or strategy in ("credit_spread", "spx_credit_spread"):
         sim = simulate_credit_spread(
             price_rows,
             contracts=contracts,
@@ -362,8 +470,18 @@ async def run_backtest(
             max_loss_per_trade=max_loss_per_trade,
             initial_capital=request.initial_capital,
         )
+        params_used = {
+            "contracts": contracts,
+            "spread_width": spread_width,
+            "short_strike_delta": short_strike_delta,
+            "take_profit_pct": take_profit_pct,
+            "max_loss_per_trade": max_loss_per_trade,
+        }
     else:
-        raise HTTPException(status_code=400, detail=f"Strategy '{request.strategy}' not yet supported. Use 'credit_spread'.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Strategy '{request.strategy}' not yet supported. Supported: credit_spread, iron_fly.",
+        )
 
     return {
         "strategy": request.strategy,
@@ -371,12 +489,6 @@ async def run_backtest(
         "end_date": request.end_date,
         "initial_capital": request.initial_capital,
         "is_synthetic": is_synthetic,
-        "trade_params_used": {
-            "contracts": contracts,
-            "spread_width": spread_width,
-            "short_strike_delta": short_strike_delta,
-            "take_profit_pct": take_profit_pct,
-            "max_loss_per_trade": max_loss_per_trade,
-        },
+        "trade_params_used": params_used,
         **sim,
     }
