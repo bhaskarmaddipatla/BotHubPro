@@ -72,8 +72,8 @@ const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; mi
   iron_fly: [
     { key: 'contracts',        label: 'Contracts',   min: 1,    max: 50,   step: 1,    tooltip: 'Number of iron fly contracts per trade' },
     { key: 'wing_width',       label: 'Wing Width',  unit: 'pts', min: 10, max: 100, step: 5,    tooltip: 'Distance from ATM short strike to long wing' },
-    { key: 'profit_target_pct',label: 'Take Profit', unit: '% of credit', min: 10, max: 50, step: 5, tooltip: 'Close when P&L reaches this % of opening credit' },
-    { key: 'stop_loss_pct',    label: 'Stop Loss',   unit: '% of credit', min: 100, max: 300, step: 25, tooltip: 'Exit when loss = this % of opening credit received' },
+    { key: 'profit_target_pct',label: 'Take Profit', unit: '% of credit', min: 2, max: 100, step: 1, tooltip: 'Close when P&L reaches this % of opening credit' },
+    { key: 'stop_loss_pct',    label: 'Stop Loss',   unit: '% of credit', min: 5, max: 300, step: 5, tooltip: 'Exit when loss = this % of opening credit received' },
     { key: 'entry_start',      label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
     { key: 'entry_end',        label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
@@ -111,7 +111,7 @@ const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; mi
 const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   credit_spread: { contracts: 2, spread_width: 5, short_strike_delta: 0.20, take_profit_pct: 50, stop_loss_pct: 100, max_trades_per_day: 4 },
   iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
-  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150 },
+  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 6, stop_loss_pct: 15 },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
   spx_0dte_ai:   { contracts: 2, spread_width: 10, short_strike_delta: 0.20, take_profit_pct: 50, stop_loss_pct: 100, max_trades_per_day: 4 },
   swing_trade:   { contracts: 1, spread_width: 25, short_strike_delta: 0.16, dte_min: 7, dte_max: 45, profit_target_pct: 50, stop_loss_pct: 200, max_trades_per_week: 2 },

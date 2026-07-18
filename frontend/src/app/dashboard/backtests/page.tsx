@@ -62,7 +62,7 @@ const categoryToStrategy: Record<string, string> = {
 const DEFAULT_PARAMS_BY_STRATEGY: Record<string, Record<string, number | string>> = {
   credit_spread: { contracts: 1, spread_width: 5, short_strike_delta: 0.20, take_profit_pct: 50, max_loss_per_trade: 500 },
   iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
-  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 6, stop_loss_pct: 10, entry_time: '10:45', max_hold_minutes: 60 },
+  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 6, stop_loss_pct: 15, entry_time: '10:45', max_hold_minutes: 60 },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
 }
 
