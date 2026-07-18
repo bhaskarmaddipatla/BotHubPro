@@ -18,7 +18,7 @@ const STRATEGY_OPTIONS = [
   { value: 'butterfly',     label: 'SPX Butterfly (0DTE)' },
 ]
 
-type ParamDef = { key: string; label: string; type: string; step: number; min: number; max: number }
+type ParamDef = { key: string; label: string; type: string; step?: number; min?: number; max?: number }
 
 // Strategy → which param fields to show
 const STRATEGY_PARAMS: Record<string, ParamDef[]> = {
@@ -41,6 +41,8 @@ const STRATEGY_PARAMS: Record<string, ParamDef[]> = {
     { key: 'wing_width',       label: 'Wing Width (pts)',type: 'number', step: 5,    min: 10,   max: 100  },
     { key: 'profit_target_pct',label: 'Take Profit (%)', type: 'number', step: 5,    min: 10,   max: 50   },
     { key: 'stop_loss_pct',    label: 'Stop Loss (%)',   type: 'number', step: 25,   min: 100,  max: 300  },
+    { key: 'entry_time',       label: 'Entry Time (ET)', type: 'time' },
+    { key: 'max_hold_minutes', label: 'Max Hold (min)',  type: 'number', step: 15,   min: 15,   max: 390  },
   ],
   butterfly: [
     { key: 'contracts',        label: 'Contracts',       type: 'number', step: 1,    min: 1,    max: 20   },
@@ -57,10 +59,10 @@ const categoryToStrategy: Record<string, string> = {
   butterfly:     'butterfly',
 }
 
-const DEFAULT_PARAMS_BY_STRATEGY: Record<string, Record<string, number>> = {
+const DEFAULT_PARAMS_BY_STRATEGY: Record<string, Record<string, number | string>> = {
   credit_spread: { contracts: 1, spread_width: 5, short_strike_delta: 0.20, take_profit_pct: 50, max_loss_per_trade: 500 },
   iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
-  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150 },
+  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 25, stop_loss_pct: 150, entry_time: '10:45', max_hold_minutes: 60 },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
 }
 
@@ -77,7 +79,7 @@ export default function BacktestsPage() {
     end_date: '2023-12-31',
     initial_capital: 10000,
   })
-  const [tradeParams, setTradeParams] = useState<Record<string, number>>(
+  const [tradeParams, setTradeParams] = useState<Record<string, number | string>>(
     { ...DEFAULT_PARAMS_BY_STRATEGY.credit_spread }
   )
 
@@ -97,10 +99,12 @@ export default function BacktestsPage() {
     const strat = categoryToStrategy[bot?.category] || 'credit_spread'
     const cfg = bot?.configuration || {}
     const defaults = DEFAULT_PARAMS_BY_STRATEGY[strat] || DEFAULT_PARAMS_BY_STRATEGY.credit_spread
-    const merged: Record<string, number> = { ...defaults }
+    const merged: Record<string, number | string> = { ...defaults }
     // Overlay bot's own saved config values
     for (const key of Object.keys(defaults)) {
-      if (cfg[key] !== undefined) merged[key] = Number(cfg[key])
+      if (cfg[key] !== undefined) {
+        merged[key] = typeof defaults[key] === 'number' ? Number(cfg[key]) : String(cfg[key])
+      }
     }
     setTradeParams(merged)
     setForm(f => ({ ...f, bot_id: botId, strategy: strat }))
@@ -204,12 +208,15 @@ export default function BacktestsPage() {
                   <div key={p.key} className="space-y-1">
                     <Label className="text-gray-400 text-xs">{p.label}</Label>
                     <Input
-                      type="number"
+                      type={p.type === 'time' ? 'time' : 'number'}
                       step={p.step}
                       min={p.min}
                       max={p.max}
                       value={tradeParams[p.key] ?? ''}
-                      onChange={e => setTradeParams(prev => ({ ...prev, [p.key]: +e.target.value }))}
+                      onChange={e => setTradeParams(prev => ({
+                        ...prev,
+                        [p.key]: p.type === 'time' ? e.target.value : +e.target.value,
+                      }))}
                       className="bg-[#0a0e1a] border-[#1e2a3a] text-white"
                     />
                   </div>

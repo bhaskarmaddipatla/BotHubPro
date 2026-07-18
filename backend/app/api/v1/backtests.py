@@ -4,14 +4,21 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 from app.core.database import get_db
 from app.api.deps import get_current_active_user
 from app.models.user import User
 from app.models.bot import Bot
 import math
+import os
 import random
 
+import httpx
+
 router = APIRouter()
+
+SESSION_MINUTES = 390  # 09:30-16:00 ET
+BARS_PER_DAY = SESSION_MINUTES // 5
 
 # ── Black-Scholes helpers ──────────────────────────────────────────────────────
 
@@ -208,7 +215,214 @@ def _summarize(trades: list, equity_curve: list, monthly: Dict[str, dict],
     }
 
 
-# ── Iron Fly simulator ────────────────────────────────────────────────────────
+# ── Intraday data (5-minute SPX bars) ─────────────────────────────────────────
+
+def _minute_of_session(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return (int(h) - 9) * 60 + int(m) - 30
+
+
+def _fetch_intraday_5m(start_date: str, end_date: str) -> tuple:
+    """Fetch 5-min SPX index bars from Massive or Polygon (same aggs API shape).
+
+    Returns ({date: [{time, open, high, low, close}, ...]}, source_name) or
+    ({}, None) if no provider is configured/reachable.
+    """
+    et = ZoneInfo("America/New_York")
+    providers = []
+    if os.getenv("MASSIVE_API_KEY"):
+        providers.append(("massive", "https://api.massive.com", os.getenv("MASSIVE_API_KEY")))
+    if os.getenv("POLYGON_API_KEY"):
+        providers.append(("polygon", "https://api.polygon.io", os.getenv("POLYGON_API_KEY")))
+
+    for name, base, key in providers:
+        try:
+            bars_by_date: Dict[str, list] = {}
+            url = f"{base}/v2/aggs/ticker/I:SPX/range/5/minute/{start_date}/{end_date}"
+            params = {"limit": 50000, "sort": "asc", "apiKey": key}
+            with httpx.Client(timeout=30) as client:
+                for _ in range(10):  # pagination guard
+                    resp = client.get(url, params=params)
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"{name} HTTP {resp.status_code}")
+                    payload = resp.json()
+                    for b in payload.get("results") or []:
+                        dt = datetime.fromtimestamp(b["t"] / 1000, tz=et)
+                        if dt.weekday() >= 5:
+                            continue
+                        hhmm = dt.strftime("%H:%M")
+                        if not ("09:30" <= hhmm < "16:00"):
+                            continue
+                        bars_by_date.setdefault(dt.strftime("%Y-%m-%d"), []).append({
+                            "time": hhmm,
+                            "open": float(b["o"]), "high": float(b["h"]),
+                            "low": float(b["l"]), "close": float(b["c"]),
+                        })
+                    next_url = payload.get("next_url")
+                    if not next_url:
+                        break
+                    url, params = next_url, {"apiKey": key}
+            if bars_by_date:
+                return bars_by_date, name
+        except Exception:
+            continue
+    return {}, None
+
+
+def _bridge_intraday_from_daily(price_rows: list) -> dict:
+    """Synthesize 5-min bars from daily OHLC via a Brownian bridge.
+
+    The path starts at the day's open, ends at its close, and its deviations
+    are rescaled so the extremes touch the day's actual high and low. Seeded
+    by date so results are repeatable.
+    """
+    bars_by_date: Dict[str, list] = {}
+    for row in price_rows:
+        o, h, l, c = row["open"], row["high"], row["low"], row["close"]
+        rng = random.Random(int(row["date"].replace("-", "")))
+        n = BARS_PER_DAY
+        drifts, devs = [], []
+        for i in range(n + 1):
+            frac = i / n
+            drifts.append(o + (c - o) * frac)
+            # bridge-shaped noise: pinned to 0 at both ends
+            devs.append(rng.gauss(0, 1) * math.sin(math.pi * frac))
+        max_dev = max(devs) or 1e-9
+        min_dev = min(devs) or -1e-9
+        hi_room = max(h - max(p for p in drifts), 0.0)
+        lo_room = max(min(p for p in drifts) - l, 0.0)
+        pts = []
+        for drift, dev in zip(drifts, devs):
+            scale = (hi_room / max_dev) if dev > 0 else (lo_room / -min_dev)
+            pts.append(drift + dev * scale)
+        bars = []
+        for i in range(n):
+            t = 9 * 60 + 30 + i * 5
+            bars.append({
+                "time": f"{t // 60:02d}:{t % 60:02d}",
+                "open": round(pts[i], 2),
+                "high": round(max(pts[i], pts[i + 1]), 2),
+                "low": round(min(pts[i], pts[i + 1]), 2),
+                "close": round(pts[i + 1], 2),
+            })
+        bars_by_date[row["date"]] = bars
+    return bars_by_date
+
+
+# ── Iron Fly simulators ───────────────────────────────────────────────────────
+
+def _fly_value(S: float, center_K: float, wing: float, T: float, r: float, sigma: float) -> float:
+    """Current cost to close a short iron fly (per share)."""
+    return (
+        bs_price(S, center_K, T, r, sigma, "call") + bs_price(S, center_K, T, r, sigma, "put")
+        - bs_price(S, center_K + wing, T, r, sigma, "call")
+        - bs_price(S, center_K - wing, T, r, sigma, "put")
+    )
+
+
+def simulate_iron_fly_intraday(
+    price_rows: list,
+    intraday_by_date: dict,
+    contracts: int = 1,
+    wing_width: float = 50,
+    profit_target_pct: float = 25,
+    stop_loss_pct: float = 150,
+    entry_time: str = "10:45",
+    max_hold_minutes: int = 60,
+    initial_capital: float = 10_000,
+) -> dict:
+    """Intraday ATM iron fly: enter at entry_time, walk 5-min bars repricing
+    the fly with decaying time; exit on profit target, stop, or max hold."""
+    r = 0.05
+    year_minutes = 252 * SESSION_MINUTES
+
+    capital = initial_capital
+    trades: list = []
+    equity_curve = [{"date": price_rows[0]["date"], "value": round(capital, 2)}]
+    monthly: Dict[str, dict] = {}
+    entry_min = _minute_of_session(entry_time)
+
+    for row in price_rows:
+        bars = intraday_by_date.get(row["date"])
+        if not bars:
+            continue
+        sigma = row["vix"] / 100 if row["vix"] else 0.18
+
+        entry_idx = next((i for i, b in enumerate(bars) if _minute_of_session(b["time"]) >= entry_min), None)
+        if entry_idx is None or entry_idx >= len(bars) - 1:
+            continue
+        entry_bar = bars[entry_idx]
+        S0 = entry_bar["open"]
+        center_K = round(S0 / 5) * 5
+
+        T_entry = (SESSION_MINUTES - _minute_of_session(entry_bar["time"])) / year_minutes
+        credit = _fly_value(S0, center_K, wing_width, T_entry, r, sigma) * 100 * contracts
+        max_loss = (wing_width * 100 * contracts) - credit
+        if credit <= 0 or max_loss <= 0:
+            continue
+
+        stop_loss_dollars = min(credit * stop_loss_pct / 100, max_loss)
+        target_dollars = credit * profit_target_pct / 100
+        deadline_min = _minute_of_session(entry_bar["time"]) + max_hold_minutes
+
+        pnl = None
+        exit_reason = "max_hold"
+        exit_time = bars[-1]["time"]
+        for b in bars[entry_idx + 1:]:
+            now_min = _minute_of_session(b["time"])
+            T_now = max((SESSION_MINUTES - now_min) / year_minutes, 0.0)
+            # Worst price within the bar (farther extreme from the center)
+            S_worst = b["high"] if (b["high"] - center_K) > (center_K - b["low"]) else b["low"]
+            pnl_worst = credit - _fly_value(S_worst, center_K, wing_width, T_now, r, sigma) * 100 * contracts
+            pnl_close = credit - _fly_value(b["close"], center_K, wing_width, T_now, r, sigma) * 100 * contracts
+
+            if pnl_worst <= -stop_loss_dollars:
+                pnl = -stop_loss_dollars
+                exit_reason = "stop_loss"
+                exit_time = b["time"]
+                break
+            if pnl_close >= target_dollars:
+                pnl = target_dollars
+                exit_reason = "take_profit"
+                exit_time = b["time"]
+                break
+            if now_min >= deadline_min:
+                pnl = max(min(pnl_close, credit), -max_loss)
+                exit_reason = "max_hold"
+                exit_time = b["time"]
+                break
+        if pnl is None:
+            # Ran out of bars before the deadline — exit at the last bar's close
+            last = bars[-1]
+            T_last = max((SESSION_MINUTES - _minute_of_session(last["time"])) / year_minutes, 0.0)
+            pnl = max(min(credit - _fly_value(last["close"], center_K, wing_width, T_last, r, sigma) * 100 * contracts, credit), -max_loss)
+            exit_reason = "eod"
+            exit_time = last["time"]
+
+        capital += pnl
+        d = row["date"]
+        month_key = d[:7]
+        if month_key not in monthly:
+            monthly[month_key] = {"start": capital - pnl, "end": capital, "trades": 0, "wins": 0}
+        monthly[month_key]["end"] = capital
+        monthly[month_key]["trades"] += 1
+        if pnl > 0:
+            monthly[month_key]["wins"] += 1
+
+        trades.append({
+            "date": d,
+            "spx_open": round(S0, 2),
+            "short_strike": round(center_K, 2),
+            "long_strike": f"{round(center_K - wing_width)}/{round(center_K + wing_width)}",
+            "credit": round(credit, 2),
+            "pnl": round(pnl, 2),
+            "cumulative": round(capital - initial_capital, 2),
+            "exit_reason": f"{exit_reason} @ {exit_time}",
+            "contracts": contracts,
+        })
+        equity_curve.append({"date": d, "value": round(capital, 2)})
+
+    return _summarize(trades, equity_curve, monthly, capital, initial_capital)
 
 def simulate_iron_fly(
     price_rows: list,
@@ -442,16 +656,33 @@ async def run_backtest(
         raise HTTPException(status_code=400, detail="No trading days found in date range")
 
     strategy = request.strategy.lower().replace(" ", "_")
+    intraday_source = None
     if "iron_fly" in strategy:
         wing_width = float(trade_params.get("wing_width", 50))
         profit_target_pct = float(trade_params.get("profit_target_pct", 25))
         stop_loss_pct = float(trade_params.get("stop_loss_pct", 150))
-        sim = simulate_iron_fly(
+        entry_time = str(trade_params.get("entry_time", "10:45"))
+        max_hold_minutes = int(trade_params.get("max_hold_minutes", 60))
+        if not (len(entry_time) == 5 and "09:30" <= entry_time < "16:00"):
+            raise HTTPException(status_code=400, detail="entry_time must be HH:MM between 09:30 and 15:55 ET")
+
+        # Iron fly runs on the intraday engine: real 5-min bars if a data
+        # provider is configured, otherwise a Brownian bridge through each
+        # day's actual OHLC.
+        intraday_by_date, intraday_source = _fetch_intraday_5m(request.start_date, request.end_date)
+        if not intraday_by_date:
+            intraday_by_date = _bridge_intraday_from_daily(price_rows)
+            intraday_source = "synthetic_bridge"
+
+        sim = simulate_iron_fly_intraday(
             price_rows,
+            intraday_by_date,
             contracts=contracts,
             wing_width=wing_width,
             profit_target_pct=profit_target_pct,
             stop_loss_pct=stop_loss_pct,
+            entry_time=entry_time,
+            max_hold_minutes=max_hold_minutes,
             initial_capital=request.initial_capital,
         )
         params_used = {
@@ -459,6 +690,8 @@ async def run_backtest(
             "wing_width": wing_width,
             "profit_target_pct": profit_target_pct,
             "stop_loss_pct": stop_loss_pct,
+            "entry_time": entry_time,
+            "max_hold_minutes": max_hold_minutes,
         }
     elif "credit_spread" in strategy or strategy in ("credit_spread", "spx_credit_spread"):
         sim = simulate_credit_spread(
@@ -489,6 +722,7 @@ async def run_backtest(
         "end_date": request.end_date,
         "initial_capital": request.initial_capital,
         "is_synthetic": is_synthetic,
+        "intraday_source": intraday_source,
         "trade_params_used": params_used,
         **sim,
     }
