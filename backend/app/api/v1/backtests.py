@@ -9,9 +9,11 @@ from app.core.database import get_db
 from app.api.deps import get_current_active_user
 from app.models.user import User
 from app.models.bot import Bot
+import json
 import math
 import os
 import random
+import time
 
 import httpx
 
@@ -235,14 +237,25 @@ def _providers() -> list:
 
 def _fetch_agg_rows(client: httpx.Client, base: str, key: str, ticker: str,
                     mult: int, span: str, start_date: str, end_date: str) -> list:
-    """Paginated Massive/Polygon-style aggregates fetch."""
+    """Paginated Massive/Polygon-style aggregates fetch. Retries on 429."""
     results: list = []
     url = f"{base}/v2/aggs/ticker/{ticker}/range/{mult}/{span}/{start_date}/{end_date}"
     params: Optional[dict] = {"limit": 50000, "sort": "asc", "apiKey": key}
     for _ in range(10):  # pagination guard
-        resp = client.get(url, params=params)
-        if resp.status_code != 200:
-            raise RuntimeError(f"HTTP {resp.status_code} for {ticker}")
+        resp = None
+        for _attempt in range(5):
+            resp = client.get(url, params=params)
+            if resp.status_code != 429:
+                break
+            # Rate limited — wait for the window to reset and try again
+            wait = 15
+            try:
+                wait = max(int(resp.headers.get("Retry-After", "0")), 15)
+            except ValueError:
+                pass
+            time.sleep(min(wait, 60))
+        if resp is None or resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code if resp else '???'} for {ticker}")
         payload = resp.json()
         results.extend(payload.get("results") or [])
         next_url = payload.get("next_url")
@@ -250,6 +263,34 @@ def _fetch_agg_rows(client: httpx.Client, base: str, key: str, ticker: str,
             break
         url, params = next_url, {"apiKey": key}
     return results
+
+
+# Successful fetches are cached on disk so repeated backtests over the same
+# range don't re-hit provider rate limits. Bounded to completed date ranges
+# only (a range ending today would cache a partial day).
+CACHE_DIR = os.getenv("BACKTEST_CACHE_DIR", "/tmp/backtest_cache")
+
+
+def _cached_agg_rows(client: httpx.Client, base: str, key: str, name: str, ticker: str,
+                     mult: int, span: str, start_date: str, end_date: str) -> list:
+    cacheable = end_date < date.today().isoformat()
+    path = os.path.join(
+        CACHE_DIR, f"{name}_{ticker.replace(':', '_')}_{mult}{span}_{start_date}_{end_date}.json")
+    if cacheable and os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    rows = _fetch_agg_rows(client, base, key, ticker, mult, span, start_date, end_date)
+    if cacheable and rows:
+        try:
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(rows, f)
+        except Exception:
+            pass
+    return rows
 
 
 def _fetch_daily_index(start_date: str, end_date: str) -> tuple:
@@ -263,11 +304,11 @@ def _fetch_daily_index(start_date: str, end_date: str) -> tuple:
     for name, base, key in _providers():
         try:
             with httpx.Client(timeout=30) as client:
-                spx = _fetch_agg_rows(client, base, key, "I:SPX", 1, "day", start_date, end_date)
+                spx = _cached_agg_rows(client, base, key, name, "I:SPX", 1, "day", start_date, end_date)
                 if not spx:
                     raise RuntimeError("no SPX daily results")
                 try:
-                    vix = _fetch_agg_rows(client, base, key, "I:VIX", 1, "day", start_date, end_date)
+                    vix = _cached_agg_rows(client, base, key, name, "I:VIX", 1, "day", start_date, end_date)
                 except Exception as e:
                     errors.append(f"{name} VIX: {e}")
                     vix = []
@@ -321,7 +362,7 @@ def _fetch_intraday_5m(start_date: str, end_date: str, spx_open_by_date: Optiona
         # 1) Real SPX index bars
         try:
             with httpx.Client(timeout=30) as client:
-                results = _fetch_agg_rows(client, base, key, "I:SPX", 5, "minute", start_date, end_date)
+                results = _cached_agg_rows(client, base, key, name, "I:SPX", 5, "minute", start_date, end_date)
             bars_by_date = _group_session_bars(results)
             if bars_by_date:
                 return bars_by_date, name, errors
@@ -335,7 +376,7 @@ def _fetch_intraday_5m(start_date: str, end_date: str, spx_open_by_date: Optiona
         if spx_open_by_date:
             try:
                 with httpx.Client(timeout=30) as client:
-                    results = _fetch_agg_rows(client, base, key, "SPY", 5, "minute", start_date, end_date)
+                    results = _cached_agg_rows(client, base, key, name, "SPY", 5, "minute", start_date, end_date)
                 spy_bars = _group_session_bars(results)
                 bars_by_date = {}
                 for d, bars in spy_bars.items():
