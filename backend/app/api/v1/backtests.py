@@ -291,35 +291,73 @@ def _fetch_daily_index(start_date: str, end_date: str) -> tuple:
     return [], None, errors
 
 
-def _fetch_intraday_5m(start_date: str, end_date: str) -> tuple:
-    """Fetch 5-min SPX index bars from Massive or Polygon.
-
-    Returns ({date: [{time, open, high, low, close}, ...]}, source_name, errors).
-    """
+def _group_session_bars(results: list) -> Dict[str, list]:
     et = ZoneInfo("America/New_York")
+    bars_by_date: Dict[str, list] = {}
+    for b in results:
+        dt = datetime.fromtimestamp(b["t"] / 1000, tz=et)
+        if dt.weekday() >= 5:
+            continue
+        hhmm = dt.strftime("%H:%M")
+        if not ("09:30" <= hhmm < "16:00"):
+            continue
+        bars_by_date.setdefault(dt.strftime("%Y-%m-%d"), []).append({
+            "time": hhmm,
+            "open": float(b["o"]), "high": float(b["h"]),
+            "low": float(b["l"]), "close": float(b["c"]),
+        })
+    return bars_by_date
+
+
+def _fetch_intraday_5m(start_date: str, end_date: str, spx_open_by_date: Optional[dict] = None) -> tuple:
+    """Fetch 5-min index bars from Massive or Polygon.
+
+    Tries I:SPX first; if the plan doesn't cover indices (HTTP 403), falls
+    back to SPY 5-min bars rescaled to SPX levels (anchored to each day's
+    SPX open). Returns ({date: [bars]}, source_name, errors).
+    """
     errors: list = []
     for name, base, key in _providers():
+        # 1) Real SPX index bars
         try:
-            bars_by_date: Dict[str, list] = {}
             with httpx.Client(timeout=30) as client:
                 results = _fetch_agg_rows(client, base, key, "I:SPX", 5, "minute", start_date, end_date)
-            for b in results:
-                dt = datetime.fromtimestamp(b["t"] / 1000, tz=et)
-                if dt.weekday() >= 5:
-                    continue
-                hhmm = dt.strftime("%H:%M")
-                if not ("09:30" <= hhmm < "16:00"):
-                    continue
-                bars_by_date.setdefault(dt.strftime("%Y-%m-%d"), []).append({
-                    "time": hhmm,
-                    "open": float(b["o"]), "high": float(b["h"]),
-                    "low": float(b["l"]), "close": float(b["c"]),
-                })
+            bars_by_date = _group_session_bars(results)
             if bars_by_date:
                 return bars_by_date, name, errors
             raise RuntimeError("no intraday results")
         except Exception as e:
-            errors.append(f"{name} 5m: {e}")
+            hint = " (plan may not include indices)" if "403" in str(e) else ""
+            errors.append(f"{name} 5m I:SPX: {e}{hint}")
+
+        # 2) SPY bars rescaled to SPX (SPY tracks SPX at ~1/10 scale; anchor
+        #    each day to the real SPX open so strikes land at true levels)
+        if spx_open_by_date:
+            try:
+                with httpx.Client(timeout=30) as client:
+                    results = _fetch_agg_rows(client, base, key, "SPY", 5, "minute", start_date, end_date)
+                spy_bars = _group_session_bars(results)
+                bars_by_date = {}
+                for d, bars in spy_bars.items():
+                    spx_open = spx_open_by_date.get(d)
+                    if not spx_open or not bars:
+                        continue
+                    scale = spx_open / bars[0]["open"]
+                    bars_by_date[d] = [
+                        {
+                            "time": b["time"],
+                            "open": round(b["open"] * scale, 2),
+                            "high": round(b["high"] * scale, 2),
+                            "low": round(b["low"] * scale, 2),
+                            "close": round(b["close"] * scale, 2),
+                        }
+                        for b in bars
+                    ]
+                if bars_by_date:
+                    return bars_by_date, f"{name} (SPY→SPX scaled)", errors
+                raise RuntimeError("no SPY intraday results")
+            except Exception as e:
+                errors.append(f"{name} 5m SPY: {e}")
     return {}, None, errors
 
 
@@ -738,7 +776,9 @@ async def run_backtest(
         # Iron fly runs on the intraday engine: real 5-min bars if a data
         # provider is configured, otherwise a Brownian bridge through each
         # day's actual OHLC.
-        intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_5m(request.start_date, request.end_date)
+        spx_open_by_date = {r["date"]: r["open"] for r in price_rows}
+        intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_5m(
+            request.start_date, request.end_date, spx_open_by_date)
         data_errors.extend(intraday_errs)
         if not intraday_by_date:
             intraday_by_date = _bridge_intraday_from_daily(price_rows)
