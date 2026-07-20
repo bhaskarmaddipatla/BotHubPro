@@ -147,6 +147,8 @@ def simulate_credit_spread(
         trades.append({
             "date": d,
             "spx_open": round(S, 2),
+            "spx_close": round(row["close"], 2),
+            "vix": row["vix"],
             "short_strike": round(short_K, 2),
             "long_strike": round(long_K, 2),
             "credit": round(credit, 2),
@@ -412,6 +414,8 @@ def simulate_iron_fly_intraday(
         trades.append({
             "date": d,
             "spx_open": round(S0, 2),
+            "spx_close": round(row["close"], 2),
+            "vix": row["vix"],
             "short_strike": round(center_K, 2),
             "long_strike": f"{round(center_K - wing_width)}/{round(center_K + wing_width)}",
             "credit": round(credit, 2),
@@ -495,6 +499,8 @@ def simulate_iron_fly(
         trades.append({
             "date": d,
             "spx_open": round(S, 2),
+            "spx_close": round(row["close"], 2),
+            "vix": row["vix"],
             "short_strike": round(center_K, 2),
             "long_strike": f"{round(center_K - wing_width)}/{round(center_K + wing_width)}",
             "credit": round(credit, 2),

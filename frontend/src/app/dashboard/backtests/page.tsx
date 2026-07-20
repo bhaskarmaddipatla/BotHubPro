@@ -9,7 +9,7 @@ import { backtestsApi, botsApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
-import { FlaskConical, ChevronDown, ChevronUp } from 'lucide-react'
+import { FlaskConical, ChevronDown, ChevronUp, Download } from 'lucide-react'
 
 const STRATEGY_OPTIONS = [
   { value: 'credit_spread', label: 'SPX Credit Spread (0DTE)' },
@@ -136,6 +136,33 @@ export default function BacktestsPage() {
 
   const trades: any[] = result?.trades || []
   const visibleTrades = showAllTrades ? trades : trades.slice(-20)
+
+  // Export every trade (with VIX and day close) as CSV for external analysis.
+  // Metadata rows are prefixed with '#' so pandas can skip them (comment='#').
+  const downloadCsv = () => {
+    if (!result) return
+    const esc = (v: any) => {
+      const s = String(v ?? '')
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const meta = [
+      `# strategy: ${result.strategy}`,
+      `# period: ${result.start_date} to ${result.end_date}`,
+      `# initial_capital: ${result.initial_capital}`,
+      `# params: ${JSON.stringify(result.trade_params_used)}`,
+      `# data: ${result.is_synthetic ? 'synthetic_daily' : 'yahoo_daily'}${result.intraday_source ? ` + intraday:${result.intraday_source}` : ''}`,
+      `# summary: trades=${result.total_trades} win_rate=${result.win_rate}% profit_factor=${result.profit_factor} max_drawdown=${result.max_drawdown}% sharpe=${result.sharpe_ratio} total_return=${result.total_return}%`,
+    ]
+    const cols = ['date', 'spx_open', 'spx_close', 'vix', 'short_strike', 'long_strike', 'credit', 'pnl', 'cumulative', 'exit_reason', 'contracts']
+    const lines = [...meta, cols.join(','), ...trades.map(t => cols.map(c => esc(t[c])).join(','))]
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `backtest_${result.strategy}_${result.start_date}_${result.end_date}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -327,12 +354,18 @@ export default function BacktestsPage() {
                 <CardTitle className="text-base text-white">
                   Trade Log <span className="text-gray-500 text-sm font-normal">({trades.length} trades)</span>
                 </CardTitle>
-                {trades.length > 20 && (
-                  <button onClick={() => setShowAllTrades(v => !v)}
-                    className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300">
-                    {showAllTrades ? <><ChevronUp size={14} /> Show last 20</> : <><ChevronDown size={14} /> Show all {trades.length}</>}
+                <div className="flex items-center gap-3">
+                  <button onClick={downloadCsv}
+                    className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-[#1e2a3a] text-gray-300 hover:text-white hover:border-gray-600">
+                    <Download size={13} /> Download CSV
                   </button>
-                )}
+                  {trades.length > 20 && (
+                    <button onClick={() => setShowAllTrades(v => !v)}
+                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300">
+                      {showAllTrades ? <><ChevronUp size={14} /> Show last 20</> : <><ChevronDown size={14} /> Show all {trades.length}</>}
+                    </button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
