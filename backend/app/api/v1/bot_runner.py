@@ -326,8 +326,10 @@ async def start_bot(
         "NOTIFY_IS_SIM": "true" if config.get("paper_trading", True) else "false",
     })
     # Pass STRATEGY and any other string config keys as env vars so shared
-    # engine runners (e.g. bots/engine/runner.py) can select the right strategy
-    for k, v in cfg.items():
+    # engine runners (e.g. bots/engine/runner.py) can select the right strategy.
+    # UI-supplied trade params override the bot's saved config, same precedence
+    # as config.json above.
+    for k, v in {**cfg, **(body.trade_params or {})}.items():
         if isinstance(v, str) and k not in ("git_repo", "git_branch", "git_path", "entry_file"):
             env[k.upper()] = v
         elif isinstance(v, (int, float, bool)):
