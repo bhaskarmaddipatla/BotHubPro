@@ -150,10 +150,15 @@ def execute_bot_task(self, execution_id: str, bot_id: str, user_id: str):
 
 @celery_app.task(name="check_bot_schedules")
 def check_bot_schedules():
-    """Run every minute via Celery Beat. Start/stop bots per their schedule."""
+    """Run every minute via Celery Beat. Start/stop bots per their schedule.
+
+    Uses a tolerance window (not exact-minute equality) so a delayed or
+    skipped beat tick still catches the trigger, and checks the bot's actual
+    running state before acting so a wide window can't double-start/stop.
+    """
     try:
         import pytz
-        from datetime import datetime
+        from datetime import datetime, timedelta
         from app.core.database import SessionLocal
         from app.models.execution import Execution  # must be imported before Bot to resolve relationship
         from app.models.bot import Bot  # must be imported before BotSchedule to resolve relationship
@@ -164,6 +169,15 @@ def check_bot_schedules():
         import httpx
 
         backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+        # How far past the scheduled minute we still consider "due". Must be
+        # comfortably wider than the beat interval (60s) to survive a missed
+        # or delayed tick, but bounded so a long-stopped worker doesn't fire
+        # a start hours late.
+        WINDOW = timedelta(minutes=5)
+
+        def _parse_hhmm(now: "datetime", hhmm: str) -> "datetime":
+            h, m = hhmm.split(":")
+            return now.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
 
         db = SessionLocal()
         try:
@@ -173,7 +187,6 @@ def check_bot_schedules():
                     tz = pytz.timezone(sched.timezone)
                     now = datetime.now(tz)
                     day = now.weekday()  # 0=Mon
-                    current_time = now.strftime("%H:%M")
                     if day not in sched.days_of_week:
                         continue
                     bot = db.query(Bot).filter(Bot.id == sched.bot_id).first()
@@ -185,7 +198,21 @@ def check_bot_schedules():
                     # Generate a short-lived token so the scheduler can call authenticated endpoints
                     token = create_access_token({"sub": str(user.id)})
                     headers = {"Authorization": f"Bearer {token}"}
-                    if current_time == sched.start_time:
+
+                    start_at = _parse_hhmm(now, sched.start_time)
+                    stop_at = _parse_hhmm(now, sched.stop_time)
+                    start_due = timedelta(0) <= (now - start_at) < WINDOW
+                    stop_due = timedelta(0) <= (now - stop_at) < WINDOW
+                    if not (start_due or stop_due):
+                        continue
+
+                    status_resp = httpx.get(
+                        f"{backend_url}/api/v1/bot-runner/{bot.id}/status",
+                        headers=headers, timeout=10,
+                    )
+                    running = bool(status_resp.json().get("running")) if status_resp.status_code == 200 else None
+
+                    if start_due and running is False:
                         logger.info(f"Schedule: starting bot {bot.id} for user {user.email}")
                         httpx.post(
                             f"{backend_url}/api/v1/bot-runner/{bot.id}/start",
@@ -193,7 +220,7 @@ def check_bot_schedules():
                             headers=headers,
                             timeout=30,
                         )
-                    elif current_time == sched.stop_time:
+                    elif stop_due and running is True:
                         logger.info(f"Schedule: stopping bot {bot.id} for user {user.email}")
                         httpx.post(
                             f"{backend_url}/api/v1/bot-runner/{bot.id}/stop",
