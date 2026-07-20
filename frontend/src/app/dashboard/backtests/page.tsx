@@ -150,7 +150,7 @@ export default function BacktestsPage() {
       `# period: ${result.start_date} to ${result.end_date}`,
       `# initial_capital: ${result.initial_capital}`,
       `# params: ${JSON.stringify(result.trade_params_used)}`,
-      `# data: ${result.is_synthetic ? 'synthetic_daily' : 'yahoo_daily'}${result.intraday_source ? ` + intraday:${result.intraday_source}` : ''}`,
+      `# data: daily:${result.daily_source ?? (result.is_synthetic ? 'synthetic' : 'yahoo')}${result.intraday_source ? ` + intraday:${result.intraday_source}` : ''}`,
       `# summary: trades=${result.total_trades} win_rate=${result.win_rate}% profit_factor=${result.profit_factor} max_drawdown=${result.max_drawdown}% sharpe=${result.sharpe_ratio} total_return=${result.total_return}%`,
     ]
     const cols = ['date', 'spx_open', 'spx_close', 'vix', 'short_strike', 'long_strike', 'credit', 'pnl', 'cumulative', 'exit_reason', 'contracts']
@@ -261,8 +261,21 @@ export default function BacktestsPage() {
         </Card>
 
         {result?.is_synthetic && (
-          <div className="bg-yellow-900/30 border border-yellow-600/40 rounded-lg px-4 py-3 text-yellow-300 text-sm">
-            ⚠ <strong>Simulated market data</strong> — Yahoo Finance was unreachable. Results are based on a statistically calibrated synthetic SPX model (GBM, μ=10%, σ=16%) and are for illustrative purposes only.
+          <div className="bg-red-900/30 border border-red-600/40 rounded-lg px-4 py-3 text-red-300 text-sm">
+            ⛔ <strong>SYNTHETIC DATA — results are NOT based on real market prices.</strong> Every
+            data provider failed{result.data_errors?.length ? `: ${result.data_errors.join('; ')}` : ''}.
+            These numbers come from a random-walk model and must not inform trading decisions.
+          </div>
+        )}
+        {result && !result.is_synthetic && (
+          <div className="text-xs text-gray-500">
+            Data sources: daily via <span className="text-gray-300">{result.daily_source}</span>
+            {result.intraday_source && (
+              <> · intraday via <span className={result.intraday_source === 'synthetic_bridge' ? 'text-yellow-400' : 'text-gray-300'}>
+                {result.intraday_source === 'synthetic_bridge' ? 'synthetic bridge (no 5-min provider — intraday paths are approximated from real daily bars)' : result.intraday_source}
+              </span></>
+            )}
+            {result.data_errors?.length > 0 && <> · failed: {result.data_errors.join('; ')}</>}
           </div>
         )}
 

@@ -224,51 +224,103 @@ def _minute_of_session(hhmm: str) -> int:
     return (int(h) - 9) * 60 + int(m) - 30
 
 
-def _fetch_intraday_5m(start_date: str, end_date: str) -> tuple:
-    """Fetch 5-min SPX index bars from Massive or Polygon (same aggs API shape).
+def _providers() -> list:
+    out = []
+    if os.getenv("MASSIVE_API_KEY"):
+        out.append(("massive", "https://api.massive.com", os.getenv("MASSIVE_API_KEY")))
+    if os.getenv("POLYGON_API_KEY"):
+        out.append(("polygon", "https://api.polygon.io", os.getenv("POLYGON_API_KEY")))
+    return out
 
-    Returns ({date: [{time, open, high, low, close}, ...]}, source_name) or
-    ({}, None) if no provider is configured/reachable.
+
+def _fetch_agg_rows(client: httpx.Client, base: str, key: str, ticker: str,
+                    mult: int, span: str, start_date: str, end_date: str) -> list:
+    """Paginated Massive/Polygon-style aggregates fetch."""
+    results: list = []
+    url = f"{base}/v2/aggs/ticker/{ticker}/range/{mult}/{span}/{start_date}/{end_date}"
+    params: Optional[dict] = {"limit": 50000, "sort": "asc", "apiKey": key}
+    for _ in range(10):  # pagination guard
+        resp = client.get(url, params=params)
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code} for {ticker}")
+        payload = resp.json()
+        results.extend(payload.get("results") or [])
+        next_url = payload.get("next_url")
+        if not next_url:
+            break
+        url, params = next_url, {"apiKey": key}
+    return results
+
+
+def _fetch_daily_index(start_date: str, end_date: str) -> tuple:
+    """Fetch daily SPX + VIX rows from Massive or Polygon.
+
+    Returns (price_rows, source_name, errors). Empty rows + None source means
+    no provider succeeded; errors lists why each one failed.
     """
     et = ZoneInfo("America/New_York")
-    providers = []
-    if os.getenv("MASSIVE_API_KEY"):
-        providers.append(("massive", "https://api.massive.com", os.getenv("MASSIVE_API_KEY")))
-    if os.getenv("POLYGON_API_KEY"):
-        providers.append(("polygon", "https://api.polygon.io", os.getenv("POLYGON_API_KEY")))
+    errors: list = []
+    for name, base, key in _providers():
+        try:
+            with httpx.Client(timeout=30) as client:
+                spx = _fetch_agg_rows(client, base, key, "I:SPX", 1, "day", start_date, end_date)
+                if not spx:
+                    raise RuntimeError("no SPX daily results")
+                try:
+                    vix = _fetch_agg_rows(client, base, key, "I:VIX", 1, "day", start_date, end_date)
+                except Exception as e:
+                    errors.append(f"{name} VIX: {e}")
+                    vix = []
+            vix_by_date = {
+                datetime.fromtimestamp(b["t"] / 1000, tz=et).strftime("%Y-%m-%d"): float(b["c"])
+                for b in vix
+            }
+            rows, last_vix = [], 18.0
+            for b in spx:
+                d = datetime.fromtimestamp(b["t"] / 1000, tz=et).strftime("%Y-%m-%d")
+                last_vix = vix_by_date.get(d, last_vix)
+                rows.append({
+                    "date": d,
+                    "open": float(b["o"]), "high": float(b["h"]),
+                    "low": float(b["l"]), "close": float(b["c"]),
+                    "vix": last_vix,
+                })
+            return rows, name, errors
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+    return [], None, errors
 
-    for name, base, key in providers:
+
+def _fetch_intraday_5m(start_date: str, end_date: str) -> tuple:
+    """Fetch 5-min SPX index bars from Massive or Polygon.
+
+    Returns ({date: [{time, open, high, low, close}, ...]}, source_name, errors).
+    """
+    et = ZoneInfo("America/New_York")
+    errors: list = []
+    for name, base, key in _providers():
         try:
             bars_by_date: Dict[str, list] = {}
-            url = f"{base}/v2/aggs/ticker/I:SPX/range/5/minute/{start_date}/{end_date}"
-            params = {"limit": 50000, "sort": "asc", "apiKey": key}
             with httpx.Client(timeout=30) as client:
-                for _ in range(10):  # pagination guard
-                    resp = client.get(url, params=params)
-                    if resp.status_code != 200:
-                        raise RuntimeError(f"{name} HTTP {resp.status_code}")
-                    payload = resp.json()
-                    for b in payload.get("results") or []:
-                        dt = datetime.fromtimestamp(b["t"] / 1000, tz=et)
-                        if dt.weekday() >= 5:
-                            continue
-                        hhmm = dt.strftime("%H:%M")
-                        if not ("09:30" <= hhmm < "16:00"):
-                            continue
-                        bars_by_date.setdefault(dt.strftime("%Y-%m-%d"), []).append({
-                            "time": hhmm,
-                            "open": float(b["o"]), "high": float(b["h"]),
-                            "low": float(b["l"]), "close": float(b["c"]),
-                        })
-                    next_url = payload.get("next_url")
-                    if not next_url:
-                        break
-                    url, params = next_url, {"apiKey": key}
+                results = _fetch_agg_rows(client, base, key, "I:SPX", 5, "minute", start_date, end_date)
+            for b in results:
+                dt = datetime.fromtimestamp(b["t"] / 1000, tz=et)
+                if dt.weekday() >= 5:
+                    continue
+                hhmm = dt.strftime("%H:%M")
+                if not ("09:30" <= hhmm < "16:00"):
+                    continue
+                bars_by_date.setdefault(dt.strftime("%Y-%m-%d"), []).append({
+                    "time": hhmm,
+                    "open": float(b["o"]), "high": float(b["h"]),
+                    "low": float(b["l"]), "close": float(b["c"]),
+                })
             if bars_by_date:
-                return bars_by_date, name
-        except Exception:
-            continue
-    return {}, None
+                return bars_by_date, name, errors
+            raise RuntimeError("no intraday results")
+        except Exception as e:
+            errors.append(f"{name} 5m: {e}")
+    return {}, None, errors
 
 
 def _bridge_intraday_from_daily(price_rows: list) -> dict:
@@ -624,39 +676,50 @@ async def run_backtest(
     take_profit_pct = float(trade_params.get("take_profit_pct", 50))
     max_loss_per_trade = float(trade_params.get("max_loss_per_trade", 500))
 
-    is_synthetic = False
-    price_rows = []
+    data_errors: list = []
 
-    try:
-        spx = yf.download("^GSPC", start=request.start_date, end=request.end_date, progress=False, auto_adjust=True)
-        vix = yf.download("^VIX", start=request.start_date, end=request.end_date, progress=False, auto_adjust=True)
+    # 1) Massive/Polygon daily index aggregates (primary)
+    price_rows, daily_source, errs = _fetch_daily_index(request.start_date, request.end_date)
+    data_errors.extend(errs)
 
-        if not spx.empty:
-            # Flatten MultiIndex columns if present
-            if isinstance(spx.columns, pd.MultiIndex):
-                spx.columns = [c[0] for c in spx.columns]
-            if isinstance(vix.columns, pd.MultiIndex):
-                vix.columns = [c[0] for c in vix.columns]
-
-            vix_close = vix["Close"] if "Close" in vix.columns else None
-
-            for idx, row in spx.iterrows():
-                d = idx.strftime("%Y-%m-%d")
-                vix_val = float(vix_close.get(idx, 18.0)) if vix_close is not None else 18.0
-                price_rows.append({
-                    "date": d,
-                    "open": float(row["Open"]),
-                    "high": float(row["High"]),
-                    "low": float(row["Low"]),
-                    "close": float(row["Close"]),
-                    "vix": vix_val,
-                })
-    except Exception:
-        pass
-
+    # 2) Yahoo Finance fallback
     if not price_rows:
-        # Yahoo Finance unavailable — fall back to synthetic GBM data
+        try:
+            spx = yf.download("^GSPC", start=request.start_date, end=request.end_date, progress=False, auto_adjust=True)
+            vix = yf.download("^VIX", start=request.start_date, end=request.end_date, progress=False, auto_adjust=True)
+
+            if not spx.empty:
+                # Flatten MultiIndex columns if present
+                if isinstance(spx.columns, pd.MultiIndex):
+                    spx.columns = [c[0] for c in spx.columns]
+                if isinstance(vix.columns, pd.MultiIndex):
+                    vix.columns = [c[0] for c in vix.columns]
+
+                vix_close = vix["Close"] if "Close" in vix.columns else None
+
+                for idx, row in spx.iterrows():
+                    d = idx.strftime("%Y-%m-%d")
+                    vix_val = float(vix_close.get(idx, 18.0)) if vix_close is not None else 18.0
+                    price_rows.append({
+                        "date": d,
+                        "open": float(row["Open"]),
+                        "high": float(row["High"]),
+                        "low": float(row["Low"]),
+                        "close": float(row["Close"]),
+                        "vix": vix_val,
+                    })
+            if price_rows:
+                daily_source = "yahoo"
+            else:
+                data_errors.append("yahoo: empty response")
+        except Exception as e:
+            data_errors.append(f"yahoo: {type(e).__name__}: {e}")
+
+    # 3) Synthetic GBM last resort — results are illustrative only
+    is_synthetic = False
+    if not price_rows:
         price_rows, is_synthetic = _generate_synthetic_spx(request.start_date, request.end_date)
+        daily_source = "synthetic"
 
     if not price_rows:
         raise HTTPException(status_code=400, detail="No trading days found in date range")
@@ -675,7 +738,8 @@ async def run_backtest(
         # Iron fly runs on the intraday engine: real 5-min bars if a data
         # provider is configured, otherwise a Brownian bridge through each
         # day's actual OHLC.
-        intraday_by_date, intraday_source = _fetch_intraday_5m(request.start_date, request.end_date)
+        intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_5m(request.start_date, request.end_date)
+        data_errors.extend(intraday_errs)
         if not intraday_by_date:
             intraday_by_date = _bridge_intraday_from_daily(price_rows)
             intraday_source = "synthetic_bridge"
@@ -728,7 +792,9 @@ async def run_backtest(
         "end_date": request.end_date,
         "initial_capital": request.initial_capital,
         "is_synthetic": is_synthetic,
+        "daily_source": daily_source,
         "intraday_source": intraday_source,
+        "data_errors": data_errors,
         "trade_params_used": params_used,
         **sim,
     }
