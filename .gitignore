@@ -56,3 +56,7 @@ coverage.xml
 *.key
 *.cert
 .claude/
+
+# Next.js / TypeScript build artifacts
+*.tsbuildinfo
+next-env.d.ts
