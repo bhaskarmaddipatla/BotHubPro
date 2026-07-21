@@ -808,6 +808,8 @@ class TradeEvent(BaseModel):
     spx_price: str = ""
     vix: str = ""
     note: str = ""
+    group_id: str = ""          # IBKR order_id or UUID — set by runner.log_trade(); used to dedup vs. bot-written rich row
+    instrument: str = ""        # Human-readable label e.g. "SPX 7440/7470P 7470/7520C Iron Fly"
     is_simulation: bool = True
 
 
@@ -854,14 +856,33 @@ async def trade_event(
             "spx_price": event.spx_price,
             "vix": event.vix,
             "note": event.note,
+            "group_id": event.group_id,
+            "instrument": event.instrument,
             "source": "trade_event_api",
         }
-        # Avoid duplicates: skip if same action+strike+expiry already logged within last 60s
+        # Dedup: prefer group_id match (reliable) over action+strike+expiry (fragile for multi-leg).
+        # The bot subprocess writes a richer row first; if it carried a group_id we skip the
+        # backend write entirely so the rich row remains the single source of truth.
+        # Matching also requires the same action, so a later EXIT sharing an ENTRY's group_id
+        # (intentional — that's how the frontend groups entry+exit into one trade) still gets
+        # written instead of being swallowed by the earlier ENTRY row.
         from datetime import timezone
         now_ts = datetime.utcnow().replace(tzinfo=timezone.utc)
         is_dup = False
-        for t in trades[-10:]:
-            if t.get("action") == entry["action"] and t.get("strike") == entry["strike"] and t.get("expiry") == entry["expiry"]:
+        for t in trades[-20:]:
+            # Primary: group_id + action match — same group_id AND same action means the bot
+            # (or an earlier API call) already wrote this exact event.
+            if event.group_id and t.get("group_id") == event.group_id and t.get("action") == entry["action"]:
+                is_dup = True
+                break
+            # Fallback: action+strike+expiry within 60 s (catches strategies that don't send group_id)
+            if (
+                t.get("action") == entry["action"]
+                and t.get("strike") == entry["strike"]
+                and entry["strike"]  # don't dedup on blank strike
+                and t.get("expiry") == entry["expiry"]
+                and entry["expiry"]  # don't dedup on blank expiry
+            ):
                 try:
                     prev_ts = datetime.fromisoformat(t["timestamp"].replace("Z", "+00:00"))
                     if abs((now_ts - prev_ts).total_seconds()) < 60:
