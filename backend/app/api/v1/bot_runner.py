@@ -9,7 +9,7 @@ import secrets
 import hmac
 from pathlib import Path
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
@@ -843,7 +843,7 @@ async def trade_event(
             except Exception:
                 trades = []
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "action": event.action,
             "symbol": event.symbol,
             "strike": event.strike,
@@ -866,8 +866,7 @@ async def trade_event(
         # Matching also requires the same action, so a later EXIT sharing an ENTRY's group_id
         # (intentional — that's how the frontend groups entry+exit into one trade) still gets
         # written instead of being swallowed by the earlier ENTRY row.
-        from datetime import timezone
-        now_ts = datetime.utcnow().replace(tzinfo=timezone.utc)
+        now_ts = datetime.now(timezone.utc)
         is_dup = False
         for t in trades[-20:]:
             # Primary: group_id + action match — same group_id AND same action means the bot
