@@ -74,7 +74,7 @@ const PARAM_DEFS: Record<string, { key: string; label: string; unit?: string; mi
     { key: 'wing_width',       label: 'Wing Width',  unit: 'pts', min: 10, max: 100, step: 5,    tooltip: 'Distance from ATM short strike to long wing' },
     { key: 'profit_target_pct',label: 'Take Profit', unit: '% of credit', min: 2, max: 100, step: 1, tooltip: 'Close when P&L reaches this % of opening credit' },
     { key: 'stop_loss_pct',    label: 'Stop Loss',   unit: '% of credit', min: 5, max: 300, step: 5, tooltip: 'Exit when loss = this % of opening credit received' },
-    { key: 'max_trades_per_day', label: 'Max Trades/Day', min: 1, max: 5, step: 1, tooltip: 'Maximum new entries allowed per trading day' },
+    { key: 'max_trades_per_day', label: 'Max Trades/Day', min: 1, max: 5, step: 1, tooltip: 'Maximum new entries allowed per trading day. Currently the bot only has one ~2-minute entry window near open, so values above 1 have no effect until a second window is added.' },
     { key: 'entry_start',      label: 'Entry Window Start', type: 'time', unit: 'ET', tooltip: 'Earliest time bot will open a new position (Eastern Time)' },
     { key: 'entry_end',        label: 'Entry Window End',   type: 'time', unit: 'ET', tooltip: 'Latest time bot will open a new position (Eastern Time)' },
   ],
