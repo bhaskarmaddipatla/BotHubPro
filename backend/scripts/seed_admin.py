@@ -45,13 +45,13 @@ SPX_BOTS = [
     },
     {
         "name": "SPX Iron Fly",
-        "description": "Sells ATM iron flies on SPX 0DTE. Profits from low-volatility sideways action. Takes profit at 25% of credit received; cuts loss at 150% of credit received.",
+        "description": "Sells ATM iron flies on SPX 0DTE. Profits from low-volatility sideways action. Takes profit at 25% of credit received; cuts loss at 15% of credit received.",
         "category": BotCategory.iron_fly,
         "risk_level": RiskLevel.high,
         "configuration": {
             "entry_file": "runner.py",
             "strategy": "iron_fly",
-            "symbol": "SPX", "dte": 0, "wing_width": 50, "profit_target_pct": 25, "stop_loss_pct": 150,
+            "symbol": "SPX", "dte": 0, "wing_width": 50, "profit_target_pct": 25, "stop_loss_pct": 15,
             **GIT_ENGINE,
         },
         "schedule_cron": "0 10 * * 1-5",
@@ -197,6 +197,15 @@ def seed_admin():
                     if key in b["configuration"] and cfg.get(key) != b["configuration"][key]:
                         cfg[key] = b["configuration"][key]
                         changed = True
+                # One-time correction: iron_fly's strategy code validates stop_loss_pct
+                # as a direct percent-of-credit capped under 100% (unlike credit-spread-
+                # style bots, which use a 100-300% "multiples of credit" convention). An
+                # earlier seed used the wrong convention (150), which the bot clamps and
+                # warns about at every startup. Any stored value >99.9 for this strategy
+                # is unambiguously the old bad convention, not a user customization.
+                if cfg.get("strategy") == "iron_fly" and float(cfg.get("stop_loss_pct", 0) or 0) > 99.9:
+                    cfg["stop_loss_pct"] = b["configuration"]["stop_loss_pct"]
+                    changed = True
                 if changed:
                     existing_bot.configuration = cfg
                     patched += 1
