@@ -211,6 +211,12 @@ def check_bot_schedules():
                         headers=headers, timeout=10,
                     )
                     running = bool(status_resp.json().get("running")) if status_resp.status_code == 200 else None
+                    if running is None:
+                        logger.warning(
+                            f"Schedule: bot {bot.id} status check failed "
+                            f"(HTTP {status_resp.status_code}) — skipping this tick, will retry"
+                        )
+                        continue
 
                     if start_due and running is False:
                         logger.info(f"Schedule: starting bot {bot.id} for user {user.email}")
@@ -226,6 +232,15 @@ def check_bot_schedules():
                             f"{backend_url}/api/v1/bot-runner/{bot.id}/stop",
                             headers=headers,
                             timeout=10,
+                        )
+                    else:
+                        # Due, but already in the desired state (e.g. manually started
+                        # before the scheduled time) — log so this isn't mistaken for
+                        # the trigger silently failing.
+                        which = "start" if start_due else "stop"
+                        logger.info(
+                            f"Schedule: bot {bot.id} {which} due but already "
+                            f"running={running} — no action needed"
                         )
                 except Exception as e:
                     logger.error(f"Schedule check error for bot {sched.bot_id}: {e}")
