@@ -163,7 +163,11 @@ def check_bot_schedules():
         from app.models.execution import Execution  # must be imported before Bot to resolve relationship
         from app.models.bot import Bot  # must be imported before BotSchedule to resolve relationship
         from app.models.bot_schedule import BotSchedule
+        from app.models.billing import Invoice  # must be imported before Subscription to resolve relationship
         from app.models.subscription import Subscription  # must be imported before User to resolve relationship
+        from app.models.api_key import APIKey  # must be imported before User to resolve relationship
+        from app.models.notification import Notification  # must be imported before User to resolve relationship
+        from app.models.audit_log import AuditLog  # must be imported before User to resolve relationship
         from app.models.user import User
         from app.core.security import create_access_token
         import httpx
