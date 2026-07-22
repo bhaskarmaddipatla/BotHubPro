@@ -490,7 +490,7 @@ function BotProcessLog({ lines, running, show, onToggle, onClear, onRefresh }: {
                   const isSep     = /^━+$/.test(line.trim())
                   const isHeader  = /^\s*(ORDER CONTEXT|ENTRY CONTEXT)/i.test(line)
                   const isSkip    = /⛔|SKIPPED/i.test(line)
-                  const isError   = /error|exception|traceback|critical|failed to/i.test(line)
+                  const isError   = /error(?!Code=0\b)|exception|traceback|critical|failed to/i.test(line)
                   const isWarn    = /warn|warning/i.test(line)
                   const isEntry   = /entry time|short leg|long leg|filled credit|order id|entry type|limit price|max risk|expiration|quantity/i.test(line)
                   const isExit    = /exit time|realized p&l|hold time/i.test(line)
