@@ -137,6 +137,7 @@ export const botRunnerApi = {
   testConnection: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/test-connection`),
   closePosition: (botId: string, instrument?: string, conIds?: number[]) =>
     api.post(`/api/v1/bot-runner/${botId}/close-position`, { instrument, con_ids: conIds }),
+  clearPositions: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/positions/clear`),
   logs: (botId: string, opts?: { lines?: number; level?: string; search?: string; since?: string }) => {
     const params = new URLSearchParams()
     if (opts?.lines) params.set('lines', String(opts.lines))

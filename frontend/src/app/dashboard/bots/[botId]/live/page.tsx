@@ -119,7 +119,7 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
 }
 
 // ── Open Positions Card ───────────────────────────────────────────────────────
-function OpenPositionsCard({ positions, onClose }: { positions: any[]; onClose?: (label: string, conIds?: number[]) => void }) {
+function OpenPositionsCard({ positions, onClose, running, onClear }: { positions: any[]; onClose?: (label: string, conIds?: number[]) => void; running?: boolean; onClear?: () => void }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [confirming, setConfirming] = useState<number | null>(null)  // spread index being confirmed
 
@@ -236,6 +236,15 @@ function OpenPositionsCard({ positions, onClose }: { positions: any[]; onClose?:
           Open Positions
           {rows.length > 0 && (
             <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">{rows.length}</span>
+          )}
+          {rows.length > 0 && running === false && onClear && (
+            <button
+              onClick={onClear}
+              title="Bot is stopped — this only resets the display, it does not touch any real IBKR position. Use this if positions here are stale/incorrect leftovers."
+              className="ml-auto text-[10px] px-2 py-0.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-400 transition-colors"
+            >
+              Clear Stale
+            </button>
           )}
         </CardTitle>
       </CardHeader>
@@ -816,6 +825,16 @@ export default function LiveBotPage() {
     }
   }
 
+  const handleClearPositions = async () => {
+    try {
+      await botRunnerApi.clearPositions(botId)
+      setPositions([])
+      toast.success('Cleared stale positions display')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to clear positions')
+    }
+  }
+
   const runDiagnose = async () => {
     setDiagLoading(true)
     setDiagReport(null)
@@ -1242,7 +1261,7 @@ export default function LiveBotPage() {
               <SwingMonitorPanel botId={botId} />
             ) : (
             /* Open Positions */
-            <OpenPositionsCard positions={positions} onClose={handleClosePosition} />
+            <OpenPositionsCard positions={positions} onClose={handleClosePosition} running={running} onClear={handleClearPositions} />
             )}
 
             {/* Trade Log */}

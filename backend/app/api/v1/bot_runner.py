@@ -544,6 +544,30 @@ async def bot_positions(
         return []
 
 
+@router.post("/{bot_id}/positions/clear")
+async def clear_stale_positions(
+    bot_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Reset positions.json to empty. Only allowed while the bot is stopped —
+    a running bot subprocess owns that file and would just overwrite this on
+    its next heartbeat, and clearing it out from under a live process risks a
+    race with the real position state. This is for the case where a bot was
+    stopped (crashed, killed, manually stopped) leaving stale/incorrect
+    positions displayed with no running process left to act on Close Now."""
+    pid = _read_pid(current_user.id, bot_id)
+    if pid is not None and _is_running(pid):
+        raise HTTPException(
+            status_code=409,
+            detail="Bot is running — stop it first, or use Close Now to close real positions.",
+        )
+
+    positions_path = _data_dir(current_user.id, bot_id) / "positions.json"
+    positions_path.parent.mkdir(parents=True, exist_ok=True)
+    positions_path.write_text("[]")
+    return {"status": "cleared"}
+
+
 @router.get("/{bot_id}/trade-log")
 async def bot_trade_log(
     bot_id: UUID,
