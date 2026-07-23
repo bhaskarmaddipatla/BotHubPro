@@ -36,6 +36,13 @@ function fmtPrice(val?: string | number): string {
   return isNaN(n) ? String(val) : n.toFixed(2)
 }
 
+// Number(x) treats "" as 0, not NaN — that silently turns "no data" into a
+// real-looking zero. Use this wherever a blank/missing value must stay
+// excluded from calculations instead of being counted as $0.
+function toNum(v: unknown): number {
+  return v === undefined || v === null || v === '' ? NaN : Number(v)
+}
+
 // Returns YYYY-MM-DD in ET timezone
 function todayET(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -123,9 +130,9 @@ function buildGroup(id: string, rows: TradeEntry[]): SpreadGroup {
   })
   const closeTime = filledExits.length > 0 ? filledExits.map(r => r.time ?? r.timestamp).filter(Boolean).sort().pop() as string | undefined : undefined
 
-  const pnlVals = filledExits.map(r => Number(r.pnl ?? NaN)).filter(n => !isNaN(n))
+  const pnlVals = filledExits.map(r => toNum(r.pnl)).filter(n => !isNaN(n))
   const netPnl = pnlVals.length > 0 ? pnlVals.reduce((a, b) => a + b, 0) : undefined
-  const creditVals = entries.map(r => Number(r.filled_price ?? r.price ?? r.credit ?? NaN)).filter(n => !isNaN(n))
+  const creditVals = entries.map(r => toNum(r.filled_price ?? r.price ?? r.credit)).filter(n => !isNaN(n))
   const entryCredit = creditVals.length > 0 ? creditVals.reduce((a, b) => a + b, 0) / creditVals.length : undefined
 
   // Build instrument label — prefer the row with the richest data (entry with strikes)
@@ -137,10 +144,10 @@ function buildGroup(id: string, rows: TradeEntry[]): SpreadGroup {
     // Pick the row with the most informative instrument name (has digits = has strikes)
     const best = [...entries, ...rows].find(r => /\d/.test(String(r.instrument ?? ''))) ?? entryRef ?? rows[0]
     const rawInstrument = String(best?.instrument ?? best?.description ?? best?.symbol ?? '')
-    const shortStrike = Number(best?.short_strike ?? NaN)
-    const longStrike  = Number(best?.long_strike  ?? NaN)
+    const shortStrike = toNum(best?.short_strike)
+    const longStrike  = toNum(best?.long_strike)
     const rightLabel  = String(best?.right ?? (rawInstrument.toLowerCase().includes('call') ? 'C' : 'P')).toUpperCase().startsWith('C') ? 'Call' : 'Put'
-    const creditVal   = Number(entries[0]?.filled_price ?? entries[0]?.price ?? entries[0]?.credit ?? NaN)
+    const creditVal   = toNum(entries[0]?.filled_price ?? entries[0]?.price ?? entries[0]?.credit)
     const isCredit    = !isNaN(creditVal) ? creditVal < 0 : (!isNaN(shortStrike) && !isNaN(longStrike) ? shortStrike > longStrike : true)
     const spreadType  = isCredit ? 'Credit' : 'Debit'
     if (!isNaN(shortStrike) && !isNaN(longStrike)) {
@@ -321,8 +328,8 @@ export default function BotTradeLog({ trades }: { trades: TradeEntry[] }) {
                             {t.qty !== undefined ? `${t.qty} contract${Number(t.qty) !== 1 ? 's' : ''}` : '—'}
                           </td>
                           <td className="px-3 py-1.5 text-right text-gray-300">{fmtPrice(price)}</td>
-                          <td className={`px-3 py-1.5 text-right font-medium ${t.pnl !== undefined ? (Number(t.pnl) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
-                            {t.pnl !== undefined ? fmtPnl(t.pnl) : '—'}
+                          <td className={`px-3 py-1.5 text-right font-medium ${!isNaN(toNum(t.pnl)) ? (toNum(t.pnl) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
+                            {fmtPnl(t.pnl)}
                           </td>
                         </tr>
                       )
