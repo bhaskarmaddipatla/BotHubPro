@@ -195,8 +195,10 @@ export default function BotTradeLog({ trades }: { trades: TradeEntry[] }) {
     })
   }, [allGroups, filterMode, fromDate, toDate])
 
-  const totalPnl = groups.reduce((sum, g) => sum + (g.netPnl ?? 0), 0)
   const closedGroups = groups.filter(g => g.status === 'closed')
+  const knownPnlGroups = closedGroups.filter(g => g.netPnl !== undefined)
+  const unresolvedCount = closedGroups.length - knownPnlGroups.length
+  const totalPnl = knownPnlGroups.reduce((sum, g) => sum + (g.netPnl as number), 0)
 
   return (
     <div className="flex flex-col h-full">
@@ -243,9 +245,14 @@ export default function BotTradeLog({ trades }: { trades: TradeEntry[] }) {
         {groups.length > 0 && (
           <span className="ml-auto text-xs text-gray-500">
             {closedGroups.length} closed
-            {closedGroups.length > 0 && (
+            {knownPnlGroups.length > 0 && (
               <span className={`ml-2 font-medium ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
+              </span>
+            )}
+            {unresolvedCount > 0 && (
+              <span className="ml-2 text-orange-400" title="Closed trades whose P&L was never reported by the bot">
+                ({unresolvedCount} unresolved)
               </span>
             )}
           </span>
