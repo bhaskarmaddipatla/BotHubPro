@@ -190,6 +190,41 @@ def _cleanup_stale_session_files(data_path: Path) -> None:
 class StartBotRequest(BaseModel):
     trade_params: dict = {}
 
+class SaveTradeParamsRequest(BaseModel):
+    trade_params: dict = {}
+
+@router.put("/{bot_id}/trade-params")
+async def save_trade_params(
+    bot_id: UUID,
+    body: SaveTradeParamsRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Persist trade parameter edits into bot.configuration so they're used
+    for EVERY future start — not just a manual Start Bot click.
+
+    Without this, editing a value in the UI only ever affected the one
+    manual start it was passed with (as a start-time override); a
+    scheduler-triggered auto-start sends no trade_params at all and falls
+    straight back to whatever was last persisted here, silently ignoring
+    any unsaved edit. This endpoint is the fix: it merges the given fields
+    into the bot's persisted configuration (never wholesale-replaces it,
+    so git_repo/entry_file/strategy and anything else already set is kept)
+    so manual starts and scheduled auto-starts agree on the same values.
+    """
+    bot = db.query(Bot).filter(Bot.id == bot_id, Bot.user_id == current_user.id).first()
+    if not bot:
+        bot = db.query(Bot).filter(Bot.id == bot_id, Bot.is_marketplace == True).first()
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    config = dict(bot.configuration or {})
+    config.update(body.trade_params or {})
+    bot.configuration = config
+    db.commit()
+    return {"status": "saved", "configuration": config}
+
+
 @router.post("/{bot_id}/start")
 async def start_bot(
     bot_id: UUID,

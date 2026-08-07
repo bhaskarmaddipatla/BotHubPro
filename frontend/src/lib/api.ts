@@ -130,6 +130,8 @@ export const botRunnerApi = {
   start: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/start`),
   startWithParams: (botId: string, tradeParams: Record<string, string | number | boolean>) =>
     api.post(`/api/v1/bot-runner/${botId}/start`, { trade_params: tradeParams }),
+  saveTradeParams: (botId: string, tradeParams: Record<string, string | number | boolean>) =>
+    api.put(`/api/v1/bot-runner/${botId}/trade-params`, { trade_params: tradeParams }),
   stop: (botId: string) => api.post(`/api/v1/bot-runner/${botId}/stop`),
   status: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/status`),
   positions: (botId: string) => api.get(`/api/v1/bot-runner/${botId}/positions`),

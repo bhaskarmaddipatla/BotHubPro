@@ -920,6 +920,19 @@ export default function LiveBotPage() {
     toast.success('Reset to bot default values')
   }
 
+  const [savingParams, setSavingParams] = useState(false)
+  const handleSaveParams = async () => {
+    setSavingParams(true)
+    try {
+      await botRunnerApi.saveTradeParams(botId, { ...tradeParams, ...timeParams })
+      setBotDefaults(prev => ({ ...prev, ...tradeParams }))
+      setHasUnsaved(false)
+      toast.success('Saved — scheduled auto-starts will use these values too')
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Failed to save trade parameters')
+    } finally { setSavingParams(false) }
+  }
+
   const fetchStatus = useCallback(async () => {
     if (!botId) return
     try {
@@ -961,9 +974,17 @@ export default function LiveBotPage() {
     setActionLoading(true)
     setShowConfirm(false)
     try {
-      const res = await botRunnerApi.startWithParams(botId, { ...tradeParams, ...timeParams, ...(forceEntry ? { force_entry: true } : {}) })
+      const paramsToPersist = { ...tradeParams, ...timeParams }
+      const res = await botRunnerApi.startWithParams(botId, { ...paramsToPersist, ...(forceEntry ? { force_entry: true } : {}) })
       setRunning(true); setPid(res.data.pid)
       toast.success(`Bot started (PID ${res.data.pid})`)
+      // Persist these values as the bot's saved defaults too — otherwise a
+      // scheduler-triggered auto-start (which sends no trade_params at all)
+      // would silently fall back to whatever was last saved, ignoring this
+      // start's values entirely.
+      botRunnerApi.saveTradeParams(botId, paramsToPersist)
+        .then(() => { setBotDefaults(prev => ({ ...prev, ...tradeParams })); setHasUnsaved(false) })
+        .catch(() => {})
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Failed to start bot')
     } finally { setActionLoading(false) }
@@ -1234,10 +1255,17 @@ export default function LiveBotPage() {
 
                 <div className="pt-3 flex items-center justify-between gap-2">
                   {hasUnsaved && !running ? (
-                    <button onClick={handleReset}
-                      className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
-                      Reset to bot defaults
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button onClick={handleReset}
+                        className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
+                        Reset to bot defaults
+                      </button>
+                      <button onClick={handleSaveParams} disabled={savingParams}
+                        title="Persist these values so scheduled auto-starts use them too, not just this session"
+                        className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors disabled:opacity-50">
+                        {savingParams ? 'Saving...' : 'Save as default'}
+                      </button>
+                    </div>
                   ) : <span />}
                   {!running && (
                     <p className="text-xs text-gray-600 text-right">
