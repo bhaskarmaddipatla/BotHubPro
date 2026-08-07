@@ -887,6 +887,11 @@ export default function LiveBotPage() {
           const { entry_start, entry_end, ...numericParsed } = parsed
           setTradeParams(numericParsed)
           setTimeParams(tp => ({ ...tp, ...(entry_start ? { entry_start } : {}), ...(entry_end ? { entry_end } : {}) }))
+          // A cached value from an earlier session that was never saved to the
+          // bot's config is just as "unsaved" as an edit made right now — the
+          // Reset/Save row needs to reflect that, not just live in-session edits.
+          const differsFromSaved = Object.keys(botOriginal).some(k => numericParsed[k] !== undefined && numericParsed[k] !== botOriginal[k])
+          if (differsFromSaved) setHasUnsaved(true)
           return
         } catch {}
       }
