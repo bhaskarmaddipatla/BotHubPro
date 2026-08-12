@@ -298,36 +298,54 @@ export default function BacktestsPage() {
                 </label>
                 {useVixRules && (
                   <div className="mt-3 space-y-2">
-                    {vixRules.map((rule, i) => (
-                      <div key={i} className="flex items-center gap-2 text-sm">
-                        <span className="text-gray-400 whitespace-nowrap">If VIX &lt;</span>
-                        <Input
-                          type="number" step={0.5} min={1} max={100}
-                          value={rule.vix_below}
-                          onChange={e => updateVixRule(i, { vix_below: +e.target.value })}
-                          className="w-20 bg-[#0a0e1a] border-[#1e2a3a] text-white"
-                        />
-                        <span className="text-gray-400 whitespace-nowrap">enter at</span>
-                        <Input
-                          type="time"
-                          value={rule.entry_time}
-                          onChange={e => updateVixRule(i, { entry_time: e.target.value })}
-                          className="w-32 bg-[#0a0e1a] border-[#1e2a3a] text-white"
-                        />
-                        <button
-                          onClick={() => removeVixRule(i)}
-                          className="text-gray-500 hover:text-red-400 text-xs px-1"
-                          title="Remove rule"
-                        >✕</button>
-                      </div>
-                    ))}
+                    {/* Rules fire lowest threshold first — the first one a
+                        day's VIX qualifies under wins, so they form bands
+                        rather than independent conditions. Display them in
+                        that evaluation order and show each row's implied
+                        lower bound (the previous row's threshold) so the
+                        band each row actually covers is visible, not just
+                        its upper edge. Editing still targets the rule's
+                        original index so typing doesn't reorder mid-edit. */}
+                    {vixRules
+                      .map((rule, originalIndex) => ({ rule, originalIndex }))
+                      .sort((a, b) => a.rule.vix_below - b.rule.vix_below)
+                      .map(({ rule, originalIndex }, pos, sorted) => {
+                        const lowerBound = pos === 0 ? null : sorted[pos - 1].rule.vix_below
+                        return (
+                          <div key={originalIndex} className="flex items-center gap-2 text-sm">
+                            <span className="text-gray-400 whitespace-nowrap">
+                              {lowerBound !== null ? `If ${lowerBound} ≤ VIX <` : 'If VIX <'}
+                            </span>
+                            <Input
+                              type="number" step={0.5} min={1} max={100}
+                              value={rule.vix_below}
+                              onChange={e => updateVixRule(originalIndex, { vix_below: +e.target.value })}
+                              className="w-20 bg-[#0a0e1a] border-[#1e2a3a] text-white"
+                            />
+                            <span className="text-gray-400 whitespace-nowrap">enter at</span>
+                            <Input
+                              type="time"
+                              value={rule.entry_time}
+                              onChange={e => updateVixRule(originalIndex, { entry_time: e.target.value })}
+                              className="w-32 bg-[#0a0e1a] border-[#1e2a3a] text-white"
+                            />
+                            <button
+                              onClick={() => removeVixRule(originalIndex)}
+                              className="text-gray-500 hover:text-red-400 text-xs px-1"
+                              title="Remove rule"
+                            >✕</button>
+                          </div>
+                        )
+                      })}
                     <div className="flex items-center gap-3 flex-wrap">
                       <button onClick={addVixRule} className="text-xs text-blue-400 hover:text-blue-300">
                         + Add VIX threshold
                       </button>
                       <span className="text-xs text-gray-500">
-                        Otherwise (VIX ≥ every threshold above) enters at the Entry Time field above ({String(tradeParams.entry_time ?? '10:45')}).
-                        Rules are evaluated lowest threshold first.
+                        {vixRules.length > 0
+                          ? `Otherwise (VIX ≥ ${Math.max(...vixRules.map(r => r.vix_below))}) enters at the Entry Time field above (${String(tradeParams.entry_time ?? '10:45')}).`
+                          : `Otherwise enters at the Entry Time field above (${String(tradeParams.entry_time ?? '10:45')}).`}
+                        {' '}Each row covers VIX from the row above's threshold up to its own.
                       </span>
                     </div>
                   </div>
