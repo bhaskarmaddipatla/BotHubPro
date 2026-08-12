@@ -226,6 +226,10 @@ def _minute_of_session(hhmm: str) -> int:
     return (int(h) - 9) * 60 + int(m) - 30
 
 
+def _valid_entry_time(hhmm: str) -> bool:
+    return isinstance(hhmm, str) and len(hhmm) == 5 and "09:30" <= hhmm < "16:00"
+
+
 def _providers() -> list:
     out = []
     if os.getenv("MASSIVE_API_KEY"):
@@ -453,6 +457,22 @@ def _fly_value(S: float, center_K: float, wing: float, T: float, r: float, sigma
     )
 
 
+def _entry_time_for_vix(vix: float, vix_entry_rules: Optional[List[dict]], default_entry_time: str) -> str:
+    """Pick the entry time for a day's VIX print.
+
+    vix_entry_rules is a list of {"vix_below": float, "entry_time": "HH:MM"},
+    sorted ascending by vix_below. The first rule whose threshold the day's
+    VIX falls under wins; a VIX at or above every threshold falls back to
+    default_entry_time (the "and above" case).
+    """
+    if not vix_entry_rules:
+        return default_entry_time
+    for rule in vix_entry_rules:
+        if vix < rule["vix_below"]:
+            return rule["entry_time"]
+    return default_entry_time
+
+
 def simulate_iron_fly_intraday(
     price_rows: list,
     intraday_by_date: dict,
@@ -463,9 +483,15 @@ def simulate_iron_fly_intraday(
     entry_time: str = "10:45",
     max_hold_minutes: int = 60,
     initial_capital: float = 10_000,
+    vix_entry_rules: Optional[List[dict]] = None,
 ) -> dict:
     """Intraday ATM iron fly: enter at entry_time, walk 5-min bars repricing
-    the fly with decaying time; exit on profit target, stop, or max hold."""
+    the fly with decaying time; exit on profit target, stop, or max hold.
+
+    entry_time is fixed unless vix_entry_rules is given, in which case each
+    day's entry time is chosen from the rule matching that day's VIX print
+    (falling back to entry_time when VIX is at/above every rule threshold).
+    """
     r = 0.05
     year_minutes = 252 * SESSION_MINUTES
 
@@ -473,13 +499,14 @@ def simulate_iron_fly_intraday(
     trades: list = []
     equity_curve = [{"date": price_rows[0]["date"], "value": round(capital, 2)}]
     monthly: Dict[str, dict] = {}
-    entry_min = _minute_of_session(entry_time)
 
     for row in price_rows:
         bars = intraday_by_date.get(row["date"])
         if not bars:
             continue
         sigma = row["vix"] / 100 if row["vix"] else 0.18
+        day_entry_time = _entry_time_for_vix(row["vix"] or 0.0, vix_entry_rules, entry_time)
+        entry_min = _minute_of_session(day_entry_time)
 
         entry_idx = next((i for i, b in enumerate(bars) if _minute_of_session(b["time"]) >= entry_min), None)
         if entry_idx is None:
@@ -544,6 +571,7 @@ def simulate_iron_fly_intraday(
 
         trades.append({
             "date": d,
+            "entry_time": day_entry_time,
             "spx_open": round(S0, 2),
             "spx_close": round(row["close"], 2),
             "vix": row["vix"],
@@ -811,8 +839,38 @@ async def run_backtest(
         stop_loss_pct = float(trade_params.get("stop_loss_pct", 150))
         entry_time = str(trade_params.get("entry_time", "10:45"))
         max_hold_minutes = int(trade_params.get("max_hold_minutes", 60))
-        if not (len(entry_time) == 5 and "09:30" <= entry_time < "16:00"):
+        if not _valid_entry_time(entry_time):
             raise HTTPException(status_code=400, detail="entry_time must be HH:MM between 09:30 and 15:55 ET")
+
+        # Optional VIX-regime entry timing: a list of {vix_below, entry_time}
+        # rules letting the backtest pick a different entry time depending on
+        # the day's VIX print (e.g. enter earlier when VIX is low and calmer
+        # entries can afford tighter timing, later when VIX is elevated).
+        # entry_time above still applies as the "VIX at/above every
+        # threshold" fallback.
+        raw_vix_rules = trade_params.get("vix_entry_rules") or []
+        vix_entry_rules: list = []
+        if raw_vix_rules:
+            if not isinstance(raw_vix_rules, list):
+                raise HTTPException(status_code=400, detail="vix_entry_rules must be a list")
+            for rule in raw_vix_rules:
+                try:
+                    vix_below = float(rule.get("vix_below"))
+                    rule_entry_time = str(rule.get("entry_time", ""))
+                except (AttributeError, TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Each vix_entry_rules item needs a numeric vix_below and an entry_time",
+                    )
+                if vix_below <= 0:
+                    raise HTTPException(status_code=400, detail="vix_entry_rules vix_below must be > 0")
+                if not _valid_entry_time(rule_entry_time):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"vix_entry_rules entry_time '{rule_entry_time}' must be HH:MM between 09:30 and 15:55 ET",
+                    )
+                vix_entry_rules.append({"vix_below": vix_below, "entry_time": rule_entry_time})
+            vix_entry_rules.sort(key=lambda r: r["vix_below"])
 
         # Iron fly runs on the intraday engine: real 5-min bars if a data
         # provider is configured, otherwise a Brownian bridge through each
@@ -835,6 +893,7 @@ async def run_backtest(
             entry_time=entry_time,
             max_hold_minutes=max_hold_minutes,
             initial_capital=request.initial_capital,
+            vix_entry_rules=vix_entry_rules or None,
         )
         params_used = {
             "contracts": contracts,
@@ -844,6 +903,8 @@ async def run_backtest(
             "entry_time": entry_time,
             "max_hold_minutes": max_hold_minutes,
         }
+        if vix_entry_rules:
+            params_used["vix_entry_rules"] = vix_entry_rules
     elif "credit_spread" in strategy or strategy in ("credit_spread", "spx_credit_spread"):
         sim = simulate_credit_spread(
             price_rows,

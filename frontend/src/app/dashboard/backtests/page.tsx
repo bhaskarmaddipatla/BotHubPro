@@ -19,6 +19,7 @@ const STRATEGY_OPTIONS = [
 ]
 
 type ParamDef = { key: string; label: string; type: string; step?: number; min?: number; max?: number }
+type VixEntryRule = { vix_below: number; entry_time: string }
 
 // Strategy → which param fields to show
 const STRATEGY_PARAMS: Record<string, ParamDef[]> = {
@@ -82,6 +83,10 @@ export default function BacktestsPage() {
   const [tradeParams, setTradeParams] = useState<Record<string, number | string>>(
     { ...DEFAULT_PARAMS_BY_STRATEGY.credit_spread }
   )
+  // Iron Fly only: optional VIX-regime entry timing (e.g. "VIX < 15 -> enter
+  // 09:45", "VIX < 20 -> enter 10:30", otherwise use tradeParams.entry_time).
+  const [useVixRules, setUseVixRules] = useState(false)
+  const [vixRules, setVixRules] = useState<VixEntryRule[]>([])
 
   useEffect(() => {
     botsApi.list().then(r => setBots(r.data || [])).catch(() => {})
@@ -92,6 +97,8 @@ export default function BacktestsPage() {
       setSelectedBot(null)
       setForm(f => ({ ...f, bot_id: '', strategy: 'credit_spread' }))
       setTradeParams({ ...DEFAULT_PARAMS_BY_STRATEGY.credit_spread })
+      setUseVixRules(false)
+      setVixRules([])
       return
     }
     const bot = bots.find((b: any) => b.id === botId)
@@ -108,21 +115,39 @@ export default function BacktestsPage() {
     }
     setTradeParams(merged)
     setForm(f => ({ ...f, bot_id: botId, strategy: strat }))
+    if (strat === 'iron_fly' && Array.isArray(cfg.vix_entry_rules) && cfg.vix_entry_rules.length > 0) {
+      setVixRules(cfg.vix_entry_rules)
+      setUseVixRules(true)
+    } else {
+      setVixRules([])
+      setUseVixRules(false)
+    }
   }
 
   const handleStrategyChange = (strat: string) => {
     setSelectedBot(null)
     setForm(f => ({ ...f, bot_id: '', strategy: strat }))
     setTradeParams({ ...(DEFAULT_PARAMS_BY_STRATEGY[strat] || DEFAULT_PARAMS_BY_STRATEGY.credit_spread) })
+    setUseVixRules(false)
+    setVixRules([])
   }
+
+  const addVixRule = () => setVixRules(prev => [...prev, { vix_below: 20, entry_time: '10:45' }])
+  const removeVixRule = (i: number) => setVixRules(prev => prev.filter((_, idx) => idx !== i))
+  const updateVixRule = (i: number, patch: Partial<VixEntryRule>) =>
+    setVixRules(prev => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r))
 
   const handleRun = async () => {
     setLoading(true)
     setShowAllTrades(false)
     try {
+      const trade_params = { ...tradeParams }
+      if (form.strategy === 'iron_fly' && useVixRules && vixRules.length > 0) {
+        trade_params.vix_entry_rules = vixRules as any
+      }
       const res = await backtestsApi.run({
         ...form,
-        trade_params: tradeParams,
+        trade_params,
       })
       setResult(res.data)
       toast.success('Backtest completed')
@@ -153,7 +178,9 @@ export default function BacktestsPage() {
       `# data: daily:${result.daily_source ?? (result.is_synthetic ? 'synthetic' : 'yahoo')}${result.intraday_source ? ` + intraday:${result.intraday_source}` : ''}`,
       `# summary: trades=${result.total_trades} win_rate=${result.win_rate}% profit_factor=${result.profit_factor} max_drawdown=${result.max_drawdown}% sharpe=${result.sharpe_ratio} total_return=${result.total_return}%`,
     ]
-    const cols = ['date', 'spx_open', 'spx_close', 'vix', 'short_strike', 'long_strike', 'credit', 'pnl', 'cumulative', 'exit_reason', 'contracts']
+    const cols = trades[0]?.entry_time !== undefined
+      ? ['date', 'entry_time', 'spx_open', 'spx_close', 'vix', 'short_strike', 'long_strike', 'credit', 'pnl', 'cumulative', 'exit_reason', 'contracts']
+      : ['date', 'spx_open', 'spx_close', 'vix', 'short_strike', 'long_strike', 'credit', 'pnl', 'cumulative', 'exit_reason', 'contracts']
     const lines = [...meta, cols.join(','), ...trades.map(t => cols.map(c => esc(t[c])).join(','))]
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -233,7 +260,9 @@ export default function BacktestsPage() {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {(STRATEGY_PARAMS[form.strategy] || STRATEGY_PARAMS.credit_spread).map(p => (
                   <div key={p.key} className="space-y-1">
-                    <Label className="text-gray-400 text-xs">{p.label}</Label>
+                    <Label className="text-gray-400 text-xs">
+                      {p.key === 'entry_time' && useVixRules ? 'Entry Time (fallback, VIX ≥ all below)' : p.label}
+                    </Label>
                     <Input
                       type={p.type === 'time' ? 'time' : 'number'}
                       step={p.step}
@@ -250,6 +279,61 @@ export default function BacktestsPage() {
                 ))}
               </div>
             </div>
+
+            {/* Iron Fly only: VIX-regime entry timing */}
+            {form.strategy === 'iron_fly' && (
+              <div className="border-t border-[#1e2a3a] pt-4">
+                <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer w-fit">
+                  <input
+                    type="checkbox"
+                    checked={useVixRules}
+                    onChange={e => {
+                      const on = e.target.checked
+                      setUseVixRules(on)
+                      if (on && vixRules.length === 0) setVixRules([{ vix_below: 15, entry_time: '09:45' }])
+                    }}
+                    className="accent-blue-500"
+                  />
+                  Vary entry time by VIX regime
+                </label>
+                {useVixRules && (
+                  <div className="mt-3 space-y-2">
+                    {vixRules.map((rule, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <span className="text-gray-400 whitespace-nowrap">If VIX &lt;</span>
+                        <Input
+                          type="number" step={0.5} min={1} max={100}
+                          value={rule.vix_below}
+                          onChange={e => updateVixRule(i, { vix_below: +e.target.value })}
+                          className="w-20 bg-[#0a0e1a] border-[#1e2a3a] text-white"
+                        />
+                        <span className="text-gray-400 whitespace-nowrap">enter at</span>
+                        <Input
+                          type="time"
+                          value={rule.entry_time}
+                          onChange={e => updateVixRule(i, { entry_time: e.target.value })}
+                          className="w-32 bg-[#0a0e1a] border-[#1e2a3a] text-white"
+                        />
+                        <button
+                          onClick={() => removeVixRule(i)}
+                          className="text-gray-500 hover:text-red-400 text-xs px-1"
+                          title="Remove rule"
+                        >✕</button>
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button onClick={addVixRule} className="text-xs text-blue-400 hover:text-blue-300">
+                        + Add VIX threshold
+                      </button>
+                      <span className="text-xs text-gray-500">
+                        Otherwise (VIX ≥ every threshold above) enters at the Entry Time field above ({String(tradeParams.entry_time ?? '10:45')}).
+                        Rules are evaluated lowest threshold first.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <Button onClick={handleRun} disabled={loading} className="gap-2">
               <FlaskConical size={16} /> {loading ? 'Fetching data & running…' : 'Run Backtest'}
@@ -386,6 +470,7 @@ export default function BacktestsPage() {
                     <thead>
                       <tr className="border-b border-[#1e2a3a] text-gray-400">
                         <th className="text-left p-3">Date</th>
+                        {trades[0]?.entry_time !== undefined && <th className="text-left p-3">Entry</th>}
                         <th className="text-right p-3">SPX Open</th>
                         <th className="text-right p-3">Short K</th>
                         <th className="text-right p-3">Long K</th>
@@ -399,6 +484,7 @@ export default function BacktestsPage() {
                       {visibleTrades.map((t: any, i: number) => (
                         <tr key={i} className="border-b border-[#1e2a3a]/40 hover:bg-[#1e2a3a]/30">
                           <td className="p-3 text-gray-300">{t.date}</td>
+                          {t.entry_time !== undefined && <td className="p-3 text-gray-400">{t.entry_time}</td>}
                           <td className="p-3 text-right text-gray-300">{t.spx_open?.toLocaleString()}</td>
                           <td className="p-3 text-right text-gray-400">{t.short_strike}</td>
                           <td className="p-3 text-right text-gray-400">{t.long_strike}</td>
