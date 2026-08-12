@@ -482,7 +482,7 @@ def simulate_iron_fly_intraday(
         sigma = row["vix"] / 100 if row["vix"] else 0.18
 
         entry_idx = next((i for i, b in enumerate(bars) if _minute_of_session(b["time"]) >= entry_min), None)
-        if entry_idx is None or entry_idx >= len(bars) - 1:
+        if entry_idx is None:
             continue
         entry_bar = bars[entry_idx]
         S0 = entry_bar["open"]
