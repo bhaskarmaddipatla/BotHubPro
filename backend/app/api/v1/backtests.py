@@ -20,7 +20,8 @@ import httpx
 router = APIRouter()
 
 SESSION_MINUTES = 390  # 09:30-16:00 ET
-BARS_PER_DAY = SESSION_MINUTES // 5
+INTRADAY_BAR_MINUTES = 1  # bar size used for both real fetches and the synthetic bridge
+BARS_PER_DAY = SESSION_MINUTES // INTRADAY_BAR_MINUTES
 
 # ── Black-Scholes helpers ──────────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ def _summarize(trades: list, equity_curve: list, monthly: Dict[str, dict],
     }
 
 
-# ── Intraday data (5-minute SPX bars) ─────────────────────────────────────────
+# ── Intraday data (1-minute SPX bars) ─────────────────────────────────────────
 
 def _minute_of_session(hhmm: str) -> int:
     h, m = hhmm.split(":")
@@ -354,33 +355,38 @@ def _group_session_bars(results: list) -> Dict[str, list]:
     return bars_by_date
 
 
-def _fetch_intraday_5m(start_date: str, end_date: str, spx_open_by_date: Optional[dict] = None) -> tuple:
-    """Fetch 5-min index bars from Massive or Polygon.
+def _fetch_intraday_bars(start_date: str, end_date: str, spx_open_by_date: Optional[dict] = None) -> tuple:
+    """Fetch 1-min index bars from Massive or Polygon.
 
     Tries I:SPX first; if the plan doesn't cover indices (HTTP 403), falls
-    back to SPY 5-min bars rescaled to SPX levels (anchored to each day's
+    back to SPY 1-min bars rescaled to SPX levels (anchored to each day's
     SPX open). Returns ({date: [bars]}, source_name, errors).
+
+    1-minute (not 5-minute) so intraday exits — stop-loss in particular —
+    are checked against the finest real granularity a provider will give us,
+    since a 5-min bar's own high/low can still smear over when a stop was
+    actually breached relative to the entry/decay clock.
     """
     errors: list = []
     for name, base, key in _providers():
         # 1) Real SPX index bars
         try:
             with httpx.Client(timeout=30) as client:
-                results = _cached_agg_rows(client, base, key, name, "I:SPX", 5, "minute", start_date, end_date)
+                results = _cached_agg_rows(client, base, key, name, "I:SPX", INTRADAY_BAR_MINUTES, "minute", start_date, end_date)
             bars_by_date = _group_session_bars(results)
             if bars_by_date:
                 return bars_by_date, name, errors
             raise RuntimeError("no intraday results")
         except Exception as e:
             hint = " (plan may not include indices)" if "403" in str(e) else ""
-            errors.append(f"{name} 5m I:SPX: {e}{hint}")
+            errors.append(f"{name} {INTRADAY_BAR_MINUTES}m I:SPX: {e}{hint}")
 
         # 2) SPY bars rescaled to SPX (SPY tracks SPX at ~1/10 scale; anchor
         #    each day to the real SPX open so strikes land at true levels)
         if spx_open_by_date:
             try:
                 with httpx.Client(timeout=30) as client:
-                    results = _cached_agg_rows(client, base, key, name, "SPY", 5, "minute", start_date, end_date)
+                    results = _cached_agg_rows(client, base, key, name, "SPY", INTRADAY_BAR_MINUTES, "minute", start_date, end_date)
                 spy_bars = _group_session_bars(results)
                 bars_by_date = {}
                 for d, bars in spy_bars.items():
@@ -402,12 +408,12 @@ def _fetch_intraday_5m(start_date: str, end_date: str, spx_open_by_date: Optiona
                     return bars_by_date, f"{name} (SPY→SPX scaled)", errors
                 raise RuntimeError("no SPY intraday results")
             except Exception as e:
-                errors.append(f"{name} 5m SPY: {e}")
+                errors.append(f"{name} {INTRADAY_BAR_MINUTES}m SPY: {e}")
     return {}, None, errors
 
 
 def _bridge_intraday_from_daily(price_rows: list) -> dict:
-    """Synthesize 5-min bars from daily OHLC via a Brownian bridge.
+    """Synthesize 1-min bars from daily OHLC via a Brownian bridge.
 
     The path starts at the day's open, ends at its close, and its deviations
     are rescaled so the extremes touch the day's actual high and low. Seeded
@@ -485,7 +491,7 @@ def simulate_iron_fly_intraday(
     initial_capital: float = 10_000,
     vix_entry_rules: Optional[List[dict]] = None,
 ) -> dict:
-    """Intraday ATM iron fly: enter at entry_time, walk 5-min bars repricing
+    """Intraday ATM iron fly: enter at entry_time, walk 1-min bars repricing
     the fly with decaying time; exit on profit target, stop, or max hold.
 
     entry_time is fixed unless vix_entry_rules is given, in which case each
@@ -872,11 +878,11 @@ async def run_backtest(
                 vix_entry_rules.append({"vix_below": vix_below, "entry_time": rule_entry_time})
             vix_entry_rules.sort(key=lambda r: r["vix_below"])
 
-        # Iron fly runs on the intraday engine: real 5-min bars if a data
+        # Iron fly runs on the intraday engine: real 1-min bars if a data
         # provider is configured, otherwise a Brownian bridge through each
         # day's actual OHLC.
         spx_open_by_date = {r["date"]: r["open"] for r in price_rows}
-        intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_5m(
+        intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_bars(
             request.start_date, request.end_date, spx_open_by_date)
         data_errors.extend(intraday_errs)
         if not intraday_by_date:

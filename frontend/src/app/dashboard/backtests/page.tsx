@@ -369,15 +369,28 @@ export default function BacktestsPage() {
             These numbers come from a random-walk model and must not inform trading decisions.
           </div>
         )}
+        {result && !result.is_synthetic && result.intraday_source === 'synthetic_bridge' && (
+          <div className="bg-orange-900/30 border border-orange-600/40 rounded-lg px-4 py-3 text-orange-300 text-sm">
+            ⚠️ <strong>APPROXIMATED INTRADAY PATH — stop-loss/take-profit timing is not reliable.</strong>{' '}
+            No 1-minute data provider was available for this range, so each day's intraday walk between
+            open and close is a randomized reconstruction: it's guaranteed to touch that day's real high
+            and low <em>somewhere</em>, but not necessarily at the time your entry was actually open. A
+            trade that looks like it exited calmly here (e.g. max-hold) may have really hit a stop-loss
+            during your entry window in the real market, or vice versa — daily P&amp;L direction is still
+            anchored to real SPX/VIX prices, but intraday stop/target timing is not. Don't size risk off
+            these numbers until a real intraday provider is configured.
+            {result.data_errors?.length > 0 && <div className="mt-1 text-orange-400/80">Provider errors: {result.data_errors.join('; ')}</div>}
+          </div>
+        )}
         {result && !result.is_synthetic && (
           <div className="text-xs text-gray-500">
             Data sources: daily via <span className="text-gray-300">{result.daily_source}</span>
             {result.intraday_source && (
-              <> · intraday via <span className={result.intraday_source === 'synthetic_bridge' ? 'text-yellow-400' : 'text-gray-300'}>
-                {result.intraday_source === 'synthetic_bridge' ? 'synthetic bridge (no 5-min provider — intraday paths are approximated from real daily bars)' : result.intraday_source}
+              <> · intraday via <span className={result.intraday_source === 'synthetic_bridge' ? 'text-orange-400' : 'text-gray-300'}>
+                {result.intraday_source === 'synthetic_bridge' ? 'synthetic bridge (see warning above)' : result.intraday_source}
               </span></>
             )}
-            {result.data_errors?.length > 0 && <> · failed: {result.data_errors.join('; ')}</>}
+            {result.data_errors?.length > 0 && result.intraday_source !== 'synthetic_bridge' && <> · failed: {result.data_errors.join('; ')}</>}
           </div>
         )}
 
