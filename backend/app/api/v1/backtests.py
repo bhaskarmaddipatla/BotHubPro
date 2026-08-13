@@ -624,12 +624,22 @@ def _bridge_intraday_from_daily(price_rows: list) -> dict:
 
 # ── Iron Fly simulators ───────────────────────────────────────────────────────
 
-def _fly_value(S: float, center_K: float, wing: float, T: float, r: float, sigma: float) -> float:
-    """Current cost to close a short iron fly (per share)."""
+def _fly_value(S: float, short_call_K: float, short_put_K: float,
+                long_call_K: float, long_put_K: float, T: float, r: float, sigma: float) -> float:
+    """Current cost to close a short iron fly (per share).
+
+    Takes all 4 strikes independently rather than a single shared ATM
+    center +/- wing_width -- matches the live SPX Iron Fly strategy
+    (bots/strategy/iron_fly/spx_iron_fly.py in the trading-bots repo),
+    which places its short strikes short_offset points ITM on each side
+    (short_call_K = atm - short_offset, short_put_K = atm + short_offset)
+    rather than both at the same ATM strike. A short_offset of 0 recovers
+    the textbook symmetric ATM straddle-bodied fly.
+    """
     return (
-        bs_price(S, center_K, T, r, sigma, "call") + bs_price(S, center_K, T, r, sigma, "put")
-        - bs_price(S, center_K + wing, T, r, sigma, "call")
-        - bs_price(S, center_K - wing, T, r, sigma, "put")
+        bs_price(S, short_call_K, T, r, sigma, "call") + bs_price(S, short_put_K, T, r, sigma, "put")
+        - bs_price(S, long_call_K, T, r, sigma, "call")
+        - bs_price(S, long_put_K, T, r, sigma, "put")
     )
 
 
@@ -654,15 +664,32 @@ def simulate_iron_fly_intraday(
     intraday_by_date: dict,
     contracts: int = 1,
     wing_width: float = 50,
-    profit_target_pct: float = 25,
-    stop_loss_pct: float = 150,
+    short_offset: float = 10,
+    profit_target_pct: float = 7,
+    stop_loss_pct: float = 15,
     entry_time: str = "10:45",
-    max_hold_minutes: int = 60,
+    eod_exit_time: str = "15:30",
     initial_capital: float = 10_000,
     vix_entry_rules: Optional[List[dict]] = None,
 ) -> dict:
-    """Intraday ATM iron fly: enter at entry_time, walk 1-min bars repricing
-    the fly with decaying time; exit on profit target, stop, or max hold.
+    """Intraday iron fly: enter at entry_time, walk 1-min bars repricing
+    the fly with decaying time; exit on profit target, stop, or EOD.
+
+    Strike structure matches the live SPX Iron Fly strategy exactly
+    (bots/strategy/iron_fly/spx_iron_fly.py): short strikes are placed
+    short_offset points ITM on each side of the rounded ATM strike, not
+    both at a single shared ATM strike --
+        atm            = round5(spot)
+        short_call_K   = atm - short_offset
+        short_put_K    = atm + short_offset
+        long_call_K    = short_call_K + wing_width
+        long_put_K     = short_put_K  - wing_width
+    A short_offset of 0 recovers a textbook symmetric ATM straddle body.
+
+    Exit deadline is an absolute wall-clock cutoff (eod_exit_time, default
+    "15:30" ET) rather than a duration relative to entry -- also matching
+    the live strategy, which holds until profit target/stop/EOD regardless
+    of how long that takes, not a fixed number of minutes after entry.
 
     entry_time is fixed unless vix_entry_rules is given, in which case each
     day's entry time is chosen from the rule matching that day's VIX print
@@ -670,6 +697,7 @@ def simulate_iron_fly_intraday(
     """
     r = 0.05
     year_minutes = 252 * SESSION_MINUTES
+    deadline_min = _minute_of_session(eod_exit_time)
 
     capital = initial_capital
     trades: list = []
@@ -689,28 +717,32 @@ def simulate_iron_fly_intraday(
             continue
         entry_bar = bars[entry_idx]
         S0 = entry_bar["open"]
-        center_K = round(S0 / 5) * 5
+        atm = round(S0 / 5) * 5
+        short_call_K = atm - short_offset
+        short_put_K = atm + short_offset
+        long_call_K = short_call_K + wing_width
+        long_put_K = short_put_K - wing_width
 
         T_entry = (SESSION_MINUTES - _minute_of_session(entry_bar["time"])) / year_minutes
-        credit = _fly_value(S0, center_K, wing_width, T_entry, r, sigma) * 100 * contracts
+        credit = _fly_value(S0, short_call_K, short_put_K, long_call_K, long_put_K, T_entry, r, sigma) * 100 * contracts
         max_loss = (wing_width * 100 * contracts) - credit
         if credit <= 0 or max_loss <= 0:
             continue
 
         stop_loss_dollars = min(credit * stop_loss_pct / 100, max_loss)
         target_dollars = credit * profit_target_pct / 100
-        deadline_min = _minute_of_session(entry_bar["time"]) + max_hold_minutes
 
         pnl = None
-        exit_reason = "max_hold"
+        exit_reason = "eod"
         exit_time = bars[-1]["time"]
         for b in bars[entry_idx + 1:]:
             now_min = _minute_of_session(b["time"])
             T_now = max((SESSION_MINUTES - now_min) / year_minutes, 0.0)
-            # Worst price within the bar (farther extreme from the center)
-            S_worst = b["high"] if (b["high"] - center_K) > (center_K - b["low"]) else b["low"]
-            pnl_worst = credit - _fly_value(S_worst, center_K, wing_width, T_now, r, sigma) * 100 * contracts
-            pnl_close = credit - _fly_value(b["close"], center_K, wing_width, T_now, r, sigma) * 100 * contracts
+            # Worst price within the bar: whichever side (short call above,
+            # short put below) the bar's high/low pushes furthest past.
+            S_worst = b["high"] if (b["high"] - short_call_K) > (short_put_K - b["low"]) else b["low"]
+            pnl_worst = credit - _fly_value(S_worst, short_call_K, short_put_K, long_call_K, long_put_K, T_now, r, sigma) * 100 * contracts
+            pnl_close = credit - _fly_value(b["close"], short_call_K, short_put_K, long_call_K, long_put_K, T_now, r, sigma) * 100 * contracts
 
             if pnl_worst <= -stop_loss_dollars:
                 pnl = -stop_loss_dollars
@@ -724,14 +756,14 @@ def simulate_iron_fly_intraday(
                 break
             if now_min >= deadline_min:
                 pnl = max(min(pnl_close, credit), -max_loss)
-                exit_reason = "max_hold"
+                exit_reason = "eod"
                 exit_time = b["time"]
                 break
         if pnl is None:
             # Ran out of bars before the deadline — exit at the last bar's close
             last = bars[-1]
             T_last = max((SESSION_MINUTES - _minute_of_session(last["time"])) / year_minutes, 0.0)
-            pnl = max(min(credit - _fly_value(last["close"], center_K, wing_width, T_last, r, sigma) * 100 * contracts, credit), -max_loss)
+            pnl = max(min(credit - _fly_value(last["close"], short_call_K, short_put_K, long_call_K, long_put_K, T_last, r, sigma) * 100 * contracts, credit), -max_loss)
             exit_reason = "eod"
             exit_time = last["time"]
 
@@ -751,8 +783,8 @@ def simulate_iron_fly_intraday(
             "spx_open": round(S0, 2),
             "spx_close": round(row["close"], 2),
             "vix": row["vix"],
-            "short_strike": round(center_K, 2),
-            "long_strike": f"{round(center_K - wing_width)}/{round(center_K + wing_width)}",
+            "short_strike": f"{round(short_put_K)}P/{round(short_call_K)}C",
+            "long_strike": f"{round(long_put_K)}P/{round(long_call_K)}C",
             "credit": round(credit, 2),
             "pnl": round(pnl, 2),
             "cumulative": round(capital - initial_capital, 2),
@@ -1010,13 +1042,20 @@ async def run_backtest(
     strategy = request.strategy.lower().replace(" ", "_")
     intraday_source = None
     if "iron_fly" in strategy:
+        # Defaults below match the live SPX Iron Fly strategy's own defaults
+        # (bots/strategy/iron_fly/spx_iron_fly.py in the trading-bots repo)
+        # so an un-configured backtest models the same trade the live bot
+        # actually places by default.
         wing_width = float(trade_params.get("wing_width", 50))
-        profit_target_pct = float(trade_params.get("profit_target_pct", 25))
-        stop_loss_pct = float(trade_params.get("stop_loss_pct", 150))
+        short_offset = float(trade_params.get("short_offset", 10))
+        profit_target_pct = float(trade_params.get("profit_target_pct", 7))
+        stop_loss_pct = float(trade_params.get("stop_loss_pct", 15))
         entry_time = str(trade_params.get("entry_time", "10:45"))
-        max_hold_minutes = int(trade_params.get("max_hold_minutes", 60))
+        eod_exit_time = str(trade_params.get("eod_exit_time", "15:30"))
         if not _valid_entry_time(entry_time):
             raise HTTPException(status_code=400, detail="entry_time must be HH:MM between 09:30 and 15:55 ET")
+        if not _valid_entry_time(eod_exit_time):
+            raise HTTPException(status_code=400, detail="eod_exit_time must be HH:MM between 09:30 and 15:55 ET")
 
         # Optional VIX-regime entry timing: a list of {vix_below, entry_time}
         # rules letting the backtest pick a different entry time depending on
@@ -1072,20 +1111,22 @@ async def run_backtest(
             intraday_by_date,
             contracts=contracts,
             wing_width=wing_width,
+            short_offset=short_offset,
             profit_target_pct=profit_target_pct,
             stop_loss_pct=stop_loss_pct,
             entry_time=entry_time,
-            max_hold_minutes=max_hold_minutes,
+            eod_exit_time=eod_exit_time,
             initial_capital=request.initial_capital,
             vix_entry_rules=vix_entry_rules or None,
         )
         params_used = {
             "contracts": contracts,
             "wing_width": wing_width,
+            "short_offset": short_offset,
             "profit_target_pct": profit_target_pct,
             "stop_loss_pct": stop_loss_pct,
             "entry_time": entry_time,
-            "max_hold_minutes": max_hold_minutes,
+            "eod_exit_time": eod_exit_time,
         }
         if vix_entry_rules:
             params_used["vix_entry_rules"] = vix_entry_rules

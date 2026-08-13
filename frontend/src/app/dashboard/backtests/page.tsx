@@ -39,11 +39,12 @@ const STRATEGY_PARAMS: Record<string, ParamDef[]> = {
   ],
   iron_fly: [
     { key: 'contracts',        label: 'Contracts',       type: 'number', step: 1,    min: 1,    max: 50   },
+    { key: 'short_offset',     label: 'Short Strike ITM Offset (pts)', type: 'number', step: 5, min: 0, max: 50 },
     { key: 'wing_width',       label: 'Wing Width (pts)',type: 'number', step: 5,    min: 10,   max: 100  },
     { key: 'profit_target_pct',label: 'Take Profit (% of credit)', type: 'number', step: 1, min: 2, max: 100 },
     { key: 'stop_loss_pct',    label: 'Stop Loss (% of credit)',   type: 'number', step: 5, min: 5, max: 300 },
     { key: 'entry_time',       label: 'Entry Time (ET)', type: 'time' },
-    { key: 'max_hold_minutes', label: 'Max Hold (min)',  type: 'number', step: 15,   min: 15,   max: 390  },
+    { key: 'eod_exit_time',    label: 'EOD Exit Time (ET)', type: 'time' },
   ],
   butterfly: [
     { key: 'contracts',        label: 'Contracts',       type: 'number', step: 1,    min: 1,    max: 20   },
@@ -63,7 +64,11 @@ const categoryToStrategy: Record<string, string> = {
 const DEFAULT_PARAMS_BY_STRATEGY: Record<string, Record<string, number | string>> = {
   credit_spread: { contracts: 1, spread_width: 5, short_strike_delta: 0.20, take_profit_pct: 50, max_loss_per_trade: 500 },
   iron_condor:   { contracts: 1, wing_width: 25, target_delta: 0.10, profit_target_pct: 50, stop_loss_pct: 200 },
-  iron_fly:      { contracts: 1, wing_width: 50, profit_target_pct: 6, stop_loss_pct: 15, entry_time: '10:45', max_hold_minutes: 60 },
+  // Matches the live SPX Iron Fly strategy's own defaults exactly
+  // (bots/strategy/iron_fly/spx_iron_fly.py) -- short_offset places each
+  // short strike 10pts ITM rather than both at a shared ATM strike, and
+  // eod_exit_time is the live bot's absolute wall-clock hold deadline.
+  iron_fly:      { contracts: 1, short_offset: 10, wing_width: 50, profit_target_pct: 7, stop_loss_pct: 15, entry_time: '10:45', eod_exit_time: '15:30' },
   butterfly:     { contracts: 1, profit_target_pct: 100, stop_loss_pct: 100 },
 }
 
@@ -503,8 +508,8 @@ export default function BacktestsPage() {
                         <th className="text-left p-3">Date</th>
                         {trades[0]?.entry_time !== undefined && <th className="text-left p-3">Entry</th>}
                         <th className="text-right p-3">SPX Open</th>
-                        <th className="text-right p-3">Short K</th>
-                        <th className="text-right p-3">Long K</th>
+                        <th className="text-left p-3">Short Strikes</th>
+                        <th className="text-left p-3">Long Strikes</th>
                         <th className="text-right p-3">Credit</th>
                         <th className="text-right p-3">P&L</th>
                         <th className="text-right p-3">Cumulative</th>
@@ -517,8 +522,8 @@ export default function BacktestsPage() {
                           <td className="p-3 text-gray-300">{t.date}</td>
                           {t.entry_time !== undefined && <td className="p-3 text-gray-400">{t.entry_time}</td>}
                           <td className="p-3 text-right text-gray-300">{t.spx_open?.toLocaleString()}</td>
-                          <td className="p-3 text-right text-gray-400">{t.short_strike}</td>
-                          <td className="p-3 text-right text-gray-400">{t.long_strike}</td>
+                          <td className="p-3 text-gray-400">{t.short_strike}</td>
+                          <td className="p-3 text-gray-400">{t.long_strike}</td>
                           <td className="p-3 text-right text-green-400">${t.credit?.toFixed(2)}</td>
                           <td className={`p-3 text-right font-medium ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {t.pnl >= 0 ? '+' : ''}{formatCurrency(t.pnl)}
