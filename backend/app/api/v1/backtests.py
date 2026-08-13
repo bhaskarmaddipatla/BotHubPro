@@ -370,7 +370,10 @@ IBKR_BACKTEST_MAX_TRADING_DAYS = 15
 IBKR_BACKTEST_CLIENT_IDS = [905, 917, 931, 947]  # kept out of the 1-899 range live bots hash into
 
 
-async def _fetch_ibkr_intraday_bars(user_id, db: Session, start_date: str, end_date: str) -> tuple:
+async def _fetch_ibkr_intraday_bars(
+    user_id, db: Session, start_date: str, end_date: str,
+    daily_range_by_date: Optional[Dict[str, tuple]] = None,
+) -> tuple:
     """Fetch real 1-min SPX bars from the user's own connected IBKR gateway.
 
     Tried before Massive/Polygon: if the user already trades live through
@@ -380,11 +383,16 @@ async def _fetch_ibkr_intraday_bars(user_id, db: Session, start_date: str, end_d
     on success, or ({}, None, errors) if IBKR isn't configured, unreachable,
     or the range exceeds IBKR_BACKTEST_MAX_TRADING_DAYS.
 
-    NOTE: contract spec (Index('SPX', 'CBOE')) and whatToShow='TRADES' follow
-    the standard ib_insync convention for cash indices, but haven't been
-    verified against a live gateway from this environment -- if your account
-    returns a permission/contract error here, the exact message will show up
-    in the backtest's data_errors so it can be adjusted.
+    whatToShow='MIDPOINT': SPX is a calculated index, not a directly-traded
+    security, so 'TRADES' bars can come back artificially narrow/sparse
+    depending on the account's feed -- MIDPOINT tracks the continuously
+    recalculated index value instead, which is the standard choice for cash
+    indices. This has NOT been verified against a live gateway from this
+    environment though, so daily_range_by_date (each date's real
+    high/low from the separately-fetched daily bar) is used as a live sanity
+    check: if a day's IBKR-derived intraday range comes back suspiciously
+    narrow next to the real daily range, that's flagged directly in the
+    returned errors instead of silently producing an under-volatile result.
     """
     errors: list = []
     key = db.query(APIKey).filter(
@@ -454,7 +462,7 @@ async def _fetch_ibkr_intraday_bars(user_id, db: Session, start_date: str, end_d
                     endDateTime=end_dt,
                     durationStr="1 D",
                     barSizeSetting="1 min",
-                    whatToShow="TRADES",
+                    whatToShow="MIDPOINT",
                     useRTH=True,
                     formatDate=2,
                     timeout=15,
@@ -487,7 +495,25 @@ async def _fetch_ibkr_intraday_bars(user_id, db: Session, start_date: str, end_d
                     "low": float(b.low), "close": float(b.close),
                 })
             if day_bars:
-                bars_by_date[day.strftime("%Y-%m-%d")] = sorted(day_bars, key=lambda x: x["time"])
+                d_str = day.strftime("%Y-%m-%d")
+                bars_by_date[d_str] = sorted(day_bars, key=lambda x: x["time"])
+
+                # Sanity check against the (separately, reliably fetched)
+                # real daily high/low: if IBKR's intraday bars for this day
+                # span far less than the day actually moved, that's a live
+                # signal the feed isn't capturing real intrabar swings --
+                # surface it instead of silently trusting an under-volatile
+                # result.
+                real_range = (daily_range_by_date or {}).get(d_str)
+                if real_range:
+                    day_high, day_low = real_range
+                    real_span = day_high - day_low
+                    ibkr_span = max(b["high"] for b in day_bars) - min(b["low"] for b in day_bars)
+                    if real_span > 0 and ibkr_span < real_span * 0.5:
+                        errors.append(
+                            f"ibkr {d_str}: intraday range {ibkr_span:.1f}pts looks narrow vs "
+                            f"real daily range {real_span:.1f}pts -- data may understate intrabar moves"
+                        )
 
             if i < len(trading_days) - 1:
                 await asyncio.sleep(1.1)  # stay well under IBKR's pacing limits
@@ -1029,8 +1055,9 @@ async def run_backtest(
         # needed since it's the same account they trade live through) ->
         # Massive/Polygon I:SPX -> SPY rescaled to SPX -> synthetic bridge.
         spx_open_by_date = {r["date"]: r["open"] for r in price_rows}
+        daily_range_by_date = {r["date"]: (r["high"], r["low"]) for r in price_rows}
         intraday_by_date, intraday_source, intraday_errs = await _fetch_ibkr_intraday_bars(
-            current_user.id, db, request.start_date, request.end_date)
+            current_user.id, db, request.start_date, request.end_date, daily_range_by_date)
         data_errors.extend(intraday_errs)
         if not intraday_by_date:
             intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_bars(
