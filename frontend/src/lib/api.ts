@@ -122,7 +122,11 @@ export const marketplaceApi = {
 }
 
 export const backtestsApi = {
-  run: (data: object) => api.post('/api/v1/backtests/run', data, { timeout: 60000 }),
+  // Iron Fly backtests may try the user's IBKR gateway for real intraday
+  // data first (one paced historical request per trading day, capped at 15
+  // days) before falling back to other providers -- give it more headroom
+  // than a plain data-fetch-and-crunch request needs.
+  run: (data: object) => api.post('/api/v1/backtests/run', data, { timeout: 120000 }),
 }
 
 export const botRunnerApi = {

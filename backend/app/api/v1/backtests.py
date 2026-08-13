@@ -9,6 +9,9 @@ from app.core.database import get_db
 from app.api.deps import get_current_active_user
 from app.models.user import User
 from app.models.bot import Bot
+from app.models.api_key import APIKey
+from app.api.v1.broker_credentials import simple_decrypt
+import asyncio
 import json
 import math
 import os
@@ -353,6 +356,147 @@ def _group_session_bars(results: list) -> Dict[str, list]:
             "low": float(b["l"]), "close": float(b["c"]),
         })
     return bars_by_date
+
+
+# Trading-day cap for the IBKR historical path. Two independent limits force
+# this: (1) IBKR's historical-data pacing rules are built for occasional,
+# recent-history pulls off a live account, not bulk multi-year backtesting --
+# hammering it risks a pacing violation against the same connection your live
+# bots use; (2) 1-min bars can only be requested one trading day per call, and
+# the frontend's request has a hard timeout, so each additional day directly
+# eats into that budget. Wider ranges silently skip IBKR and fall through to
+# the next provider instead of risking a slow, half-finished pull.
+IBKR_BACKTEST_MAX_TRADING_DAYS = 15
+IBKR_BACKTEST_CLIENT_IDS = [905, 917, 931, 947]  # kept out of the 1-899 range live bots hash into
+
+
+async def _fetch_ibkr_intraday_bars(user_id, db: Session, start_date: str, end_date: str) -> tuple:
+    """Fetch real 1-min SPX bars from the user's own connected IBKR gateway.
+
+    Tried before Massive/Polygon: if the user already trades live through
+    IBKR (same credentials as bot_runner.py's _get_ibkr_creds), that
+    connection typically already includes real index data with no separate
+    market-data subscription needed. Returns ({date: [bars]}, "ibkr", errors)
+    on success, or ({}, None, errors) if IBKR isn't configured, unreachable,
+    or the range exceeds IBKR_BACKTEST_MAX_TRADING_DAYS.
+
+    NOTE: contract spec (Index('SPX', 'CBOE')) and whatToShow='TRADES' follow
+    the standard ib_insync convention for cash indices, but haven't been
+    verified against a live gateway from this environment -- if your account
+    returns a permission/contract error here, the exact message will show up
+    in the backtest's data_errors so it can be adjusted.
+    """
+    errors: list = []
+    key = db.query(APIKey).filter(
+        APIKey.user_id == user_id, APIKey.provider == "ibkr", APIKey.is_active == True,
+    ).first()
+    if not key:
+        return {}, None, errors  # not configured -- quietly let the next provider try
+
+    try:
+        creds = json.loads(simple_decrypt(key.encrypted_key))
+    except Exception as e:
+        errors.append(f"ibkr: could not read saved credentials: {e}")
+        return {}, None, errors
+
+    et = ZoneInfo("America/New_York")
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    trading_days = []
+    d = start
+    while d <= end:
+        if d.weekday() < 5:
+            trading_days.append(d)
+        d += timedelta(days=1)
+
+    if not trading_days:
+        return {}, None, errors
+    if len(trading_days) > IBKR_BACKTEST_MAX_TRADING_DAYS:
+        errors.append(
+            f"ibkr: range spans {len(trading_days)} trading days, over the "
+            f"{IBKR_BACKTEST_MAX_TRADING_DAYS}-day pacing-safe cap for this path -- skipped"
+        )
+        return {}, None, errors
+
+    try:
+        from ib_insync import IB, Index
+    except ImportError as e:
+        errors.append(f"ibkr: ib_insync not installed: {e}")
+        return {}, None, errors
+
+    host = creds.get("host", "127.0.0.1")
+    port = int(creds.get("port", 7497))
+
+    ib = IB()
+    connected = False
+    for client_id in IBKR_BACKTEST_CLIENT_IDS:
+        try:
+            # Pass timeout natively rather than wrapping in asyncio.wait_for --
+            # ib_insync's own timeout handling cleans up its internal
+            # connection/request state on expiry; an external wait_for
+            # cancellation can leave that state half-finished instead.
+            await ib.connectAsync(host, port, clientId=client_id, timeout=10)
+            connected = True
+            break
+        except Exception as e:
+            errors.append(f"ibkr connect (clientId={client_id}): {e}")
+    if not connected:
+        return {}, None, errors
+
+    bars_by_date: Dict[str, list] = {}
+    try:
+        contract = Index("SPX", "CBOE", "USD")
+        for i, day in enumerate(trading_days):
+            end_dt = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=et)
+            try:
+                raw_bars = await ib.reqHistoricalDataAsync(
+                    contract,
+                    endDateTime=end_dt,
+                    durationStr="1 D",
+                    barSizeSetting="1 min",
+                    whatToShow="TRADES",
+                    useRTH=True,
+                    formatDate=2,
+                    timeout=15,
+                )
+            except Exception as e:
+                errors.append(f"ibkr {day.isoformat()}: {e}")
+                # A failure on the first day is almost always a permission or
+                # contract-spec problem that will repeat for every other day
+                # -- bail out immediately instead of burning the request
+                # budget (and the frontend's timeout) retrying it N times.
+                if i == 0:
+                    break
+                continue
+
+            day_bars = []
+            for b in raw_bars:
+                bt = b.date if hasattr(b.date, "hour") else datetime.combine(b.date, datetime.min.time(), tzinfo=et)
+                if bt.tzinfo is None:
+                    bt = bt.replace(tzinfo=et)
+                else:
+                    bt = bt.astimezone(et)
+                if bt.weekday() >= 5:
+                    continue
+                hhmm = bt.strftime("%H:%M")
+                if not ("09:30" <= hhmm < "16:00"):
+                    continue
+                day_bars.append({
+                    "time": hhmm,
+                    "open": float(b.open), "high": float(b.high),
+                    "low": float(b.low), "close": float(b.close),
+                })
+            if day_bars:
+                bars_by_date[day.strftime("%Y-%m-%d")] = sorted(day_bars, key=lambda x: x["time"])
+
+            if i < len(trading_days) - 1:
+                await asyncio.sleep(1.1)  # stay well under IBKR's pacing limits
+    finally:
+        ib.disconnect()
+
+    if bars_by_date:
+        return bars_by_date, "ibkr", errors
+    return {}, None, errors
 
 
 def _fetch_intraday_bars(start_date: str, end_date: str, spx_open_by_date: Optional[dict] = None) -> tuple:
@@ -880,11 +1024,18 @@ async def run_backtest(
 
         # Iron fly runs on the intraday engine: real 1-min bars if a data
         # provider is configured, otherwise a Brownian bridge through each
-        # day's actual OHLC.
+        # day's actual OHLC. Preference order: the user's own connected IBKR
+        # gateway (real index data, usually no extra market-data subscription
+        # needed since it's the same account they trade live through) ->
+        # Massive/Polygon I:SPX -> SPY rescaled to SPX -> synthetic bridge.
         spx_open_by_date = {r["date"]: r["open"] for r in price_rows}
-        intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_bars(
-            request.start_date, request.end_date, spx_open_by_date)
+        intraday_by_date, intraday_source, intraday_errs = await _fetch_ibkr_intraday_bars(
+            current_user.id, db, request.start_date, request.end_date)
         data_errors.extend(intraday_errs)
+        if not intraday_by_date:
+            intraday_by_date, intraday_source, intraday_errs = _fetch_intraday_bars(
+                request.start_date, request.end_date, spx_open_by_date)
+            data_errors.extend(intraday_errs)
         if not intraday_by_date:
             intraday_by_date = _bridge_intraday_from_daily(price_rows)
             intraday_source = "synthetic_bridge"
