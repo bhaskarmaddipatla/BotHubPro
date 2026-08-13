@@ -515,6 +515,18 @@ async def _fetch_ibkr_intraday_bars(
                             f"real daily range {real_span:.1f}pts -- data may understate intrabar moves"
                         )
 
+                # Coverage check: flag it if the day's bars stop well short of
+                # the close. A feed/pacing/permission issue truncating the
+                # session partway through looks identical to a legitimate
+                # early exit in the trade log (both just show "eod @ <time>")
+                # unless this is called out explicitly.
+                last_bar_time = day_bars[-1]["time"]
+                if last_bar_time < "15:45":
+                    errors.append(
+                        f"ibkr {d_str}: bars stop at {last_bar_time}, well before the 16:00 close "
+                        f"({len(day_bars)} bars total) -- session may be truncated"
+                    )
+
             if i < len(trading_days) - 1:
                 await asyncio.sleep(1.1)  # stay well under IBKR's pacing limits
     finally:

@@ -398,6 +398,20 @@ export default function BacktestsPage() {
             {result.data_errors?.length > 0 && result.intraday_source !== 'synthetic_bridge' && <> · failed: {result.data_errors.join('; ')}</>}
           </div>
         )}
+        {result?.trade_params_used && (
+          // What the backend ACTUALLY resolved and simulated with -- shown
+          // directly rather than left to CSV metadata, since a client-side
+          // stale value (old cached form state, unrebuilt frontend, etc.)
+          // sending the wrong param is otherwise indistinguishable from a
+          // backend bug: both just produce "wrong-looking" results.
+          <div className="text-xs text-gray-500">
+            Params used: {Object.entries(result.trade_params_used).map(([k, v]) => (
+              <span key={k} className="mr-3">
+                <span className="text-gray-400">{k}</span>=<span className="text-gray-300">{Array.isArray(v) ? JSON.stringify(v) : String(v)}</span>
+              </span>
+            ))}
+          </div>
+        )}
 
         {result && (
           <>
